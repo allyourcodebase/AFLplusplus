@@ -1,0 +1,17 @@
+.{
+    .name = "AFLplusplus",
+    .version = "4.21.0",
+    .minimum_zig_version = "0.13.0",
+    .dependencies = .{
+        .AFLplusplus = .{
+            .url = "https://github.com/AFLplusplus/AFLplusplus/archive/19ca7b3.tar.gz",
+            .hash = "12202609f778b890810bfa3a2574c8319dc211e170419bc2bc4f51241f549ba5033a",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "LICENSE",
+        "README.md",
+    },
+}
