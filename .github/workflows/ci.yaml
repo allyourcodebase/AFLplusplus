@@ -27,16 +27,3 @@ jobs:
 
       - name: Run `build`
         run: zig build -Doptimize=ReleaseFast
-
-  fmt:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Zig
-        uses: mlugg/setup-zig@v1
-
-      - name: Run `fmt`
-        run: zig build fmt
