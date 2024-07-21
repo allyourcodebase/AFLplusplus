@@ -22,7 +22,7 @@ pub fn build(b: *std.Build) void {
     const AFLplusplus_inc_path = AFLplusplus_dep.path("include/");
 
     // Common flags
-    var flags = std.BoundedArray([]const u8, 15){};
+    var flags = std.BoundedArray([]const u8, 12){};
     flags.appendSliceAssumeCapacity(&EXE_FLAGS);
     flags.appendSliceAssumeCapacity(&.{ lib_path_flag, bin_path_flag });
     if (target.result.cpu.arch.isX86()) {
@@ -249,7 +249,7 @@ pub fn build(b: *std.Build) void {
 
     network_client_exe_util.addCSourceFile(.{
         .file = AFLplusplus_utl_path.path(b, "afl_network_proxy/afl-network-client.c"),
-        .flags = &(.{ "-Wno-pointer-sign", lib_path_flag, bin_path_flag }),
+        .flags = flags.constSlice(),
     });
     if (use_deflate) {
         network_client_exe_util.root_module.addCMacro("USE_DEFLATE", "1");
@@ -269,7 +269,7 @@ pub fn build(b: *std.Build) void {
     });
     network_server_exe_util.addCSourceFile(.{
         .file = AFLplusplus_utl_path.path(b, "afl_network_proxy/afl-network-server.c"),
-        .flags = &(.{ "-Wno-pointer-sign", lib_path_flag, bin_path_flag }),
+        .flags = flags.constSlice(),
     });
     if (use_deflate) {
         network_server_exe_util.root_module.addCMacro("USE_DEFLATE", "1");
