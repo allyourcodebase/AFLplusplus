@@ -20,7 +20,7 @@ jobs:
       - name: Set up LLVM and Clang
         uses: KyleMayes/install-llvm-action@v2
         with:
-          version: "18.1"
+          version: "18.1.4"
 
       - name: Set up Zig
         uses: mlugg/setup-zig@v1
