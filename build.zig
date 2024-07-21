@@ -22,7 +22,7 @@ pub fn build(b: *std.Build) void {
     const AFLplusplus_inc_path = AFLplusplus_dep.path("include/");
 
     // Common flags
-    var flags = std.BoundedArray([]const u8, 12){};
+    var flags = std.BoundedArray([]const u8, 16){};
     flags.appendSliceAssumeCapacity(&EXE_FLAGS);
     flags.appendSliceAssumeCapacity(&.{ lib_path_flag, bin_path_flag });
     if (target.result.cpu.arch.isX86()) {
