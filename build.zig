@@ -20,6 +20,7 @@ pub fn build(b: *std.Build) void {
     const AFLplusplus_src_path = AFLplusplus_dep.path("src/");
     const AFLplusplus_utl_path = AFLplusplus_dep.path("utils/");
     const AFLplusplus_inc_path = AFLplusplus_dep.path("include/");
+    const AFLplusplus_ins_path = AFLplusplus_dep.path("instrumentation/");
 
     // Common flags
     var flags = std.BoundedArray([]const u8, 16){};
@@ -235,10 +236,37 @@ pub fn build(b: *std.Build) void {
 
     b.default_step.dependOn(exes_step);
 
+    // LLVM instrumentation flags
+    var llvm_flags = std.BoundedArray([]const u8, 16){};
+    llvm_flags.appendSliceAssumeCapacity(&EXE_LLVM_FLAGS);
+    llvm_flags.appendSliceAssumeCapacity(&.{ lib_path_flag, bin_path_flag });
+
+    // Executable LLVM instrumentation suite
+    const exe_llvm_step = b.step("exe_llvm", "Install executable instrumentation suite");
+
+    const cc_exe = b.addExecutable(.{
+        .name = "afl-cc",
+        .target = target,
+        .version = version,
+        .optimize = optimize,
+    });
+    cc_exe.addCSourceFile(.{
+        .file = AFLplusplus_src_path.path(b, "afl-cc.c"),
+        .flags = llvm_flags.constSlice(),
+    });
+    cc_exe.addIncludePath(AFLplusplus_inc_path);
+    cc_exe.addIncludePath(AFLplusplus_ins_path);
+    cc_exe.addObject(common_obj);
+    cc_exe.linkLibC();
+
+    const cc_exe_install = b.addInstallArtifact(cc_exe, .{});
+    exe_llvm_step.dependOn(&cc_exe_install.step);
+
+    // TODO: finish implementing LLVM instrumentation
+    // b.default_step.dependOn(exe_llvm_step);
+
     // Executable utility suite
     const exe_utils_step = b.step("exe_utils", "Install executable utility suite");
-
-    // TODO: LLVM instrumentation
 
     const network_client_exe_util = b.addExecutable(.{
         .name = "afl-network-client",
@@ -246,7 +274,6 @@ pub fn build(b: *std.Build) void {
         .version = version,
         .optimize = optimize,
     });
-
     network_client_exe_util.addCSourceFile(.{
         .file = AFLplusplus_utl_path.path(b, "afl_network_proxy/afl-network-client.c"),
         .flags = flags.constSlice(),
@@ -258,8 +285,8 @@ pub fn build(b: *std.Build) void {
     network_client_exe_util.addIncludePath(AFLplusplus_inc_path);
     network_client_exe_util.linkLibC();
 
-    const network_client_exe_install_util = b.addInstallArtifact(network_client_exe_util, .{});
-    exe_utils_step.dependOn(&network_client_exe_install_util.step);
+    const network_client_exe_util_install = b.addInstallArtifact(network_client_exe_util, .{});
+    exe_utils_step.dependOn(&network_client_exe_util_install.step);
 
     const network_server_exe_util = b.addExecutable(.{
         .name = "afl-network-server",
@@ -281,8 +308,8 @@ pub fn build(b: *std.Build) void {
     network_server_exe_util.addObject(common_obj);
     network_server_exe_util.linkLibC();
 
-    const network_server_exe_install_util = b.addInstallArtifact(network_server_exe_util, .{});
-    exe_utils_step.dependOn(&network_server_exe_install_util.step);
+    const network_server_exe_util_install = b.addInstallArtifact(network_server_exe_util, .{});
+    exe_utils_step.dependOn(&network_server_exe_util_install.step);
 
     b.default_step.dependOn(exe_utils_step);
 
@@ -290,8 +317,6 @@ pub fn build(b: *std.Build) void {
     const lib_utils_step = b.step("lib_utils", "Install library utility suite");
 
     if (!target.result.os.tag.isDarwin()) {
-        // TODO: GCC plugin instrumentation
-
         const dislocator_lib_util = b.addSharedLibrary(.{
             .name = "dislocator",
             .pic = true,
@@ -327,7 +352,7 @@ pub fn build(b: *std.Build) void {
         lib_utils_step.dependOn(&tokencap_lib_util_install.step);
 
         if (build_coresight and target.result.cpu.arch.isAARCH64() and target.result.ofmt == .elf) {
-            // TODO: CoreSight mode
+            // TODO: CoreSight mode (coresight_mode/GNUmakefile)
         }
     }
 
@@ -365,16 +390,16 @@ pub fn build(b: *std.Build) void {
     const argvfuzz_lib_util_install = b.addInstallArtifact(argvfuzz_lib_util, .{});
     lib_utils_step.dependOn(&argvfuzz_lib_util_install.step);
 
-    // TODO: FRIDA mode
+    // TODO: FRIDA mode (frida_mode/GNUmakefile)
 
-    // TODO: QEMU mode
+    // TODO: QEMU mode (qemu_mode/build_qemu_support.sh)
 
     if (build_nyx and target.result.os.tag == .linux) {
-        // TODO: Nyx mode
+        // TODO: Nyx mode (nyx_mode/build_nyx_support.sh)
     }
 
     if (!target.result.cpu.arch.isAARCH64() or build_unicorn_aarch64) {
-        // TODO: Unicorn mode
+        // TODO: Unicorn mode (unicorn_mode/build_unicorn_support.sh)
     }
 
     b.default_step.dependOn(lib_utils_step);
@@ -420,6 +445,34 @@ const EXE_FLAGS = .{
     "-Wno-pointer-arith",
     "-D_AFL_SPECIAL_PERFORMANCE",
     "-DDOC_PATH=\"\"",
+};
+
+const EXE_LLVM_FLAGS = .{
+    "-O3",
+    "-funroll-loops",
+    "-Wall",
+    "-g",
+    "-Wno-cast-qual",
+    "-Wno-variadic-macros",
+    "-Wno-pointer-sign",
+    "-Wno-unused-function",
+    "-Wno-deprecated-copy-with-dtor",
+    "-DAFL_CLANG_FLTO=\"-flto=full\"",
+    "-DUSE_BINDIR=1",
+    // TODO: properly set these by using system `llvm-config`
+    // "-DLLVM_BINDIR=\"$(LLVM_BINDIR)\"",
+    // "-DVERSION=\"$(VERSION)\"",
+    // "-DLLVM_LIBDIR=\"$(LLVM_LIBDIR)\"",
+    // "-DLLVM_VERSION=\"$(LLVMVER)\"",
+    // "-DAFL_REAL_LD=\"$(AFL_REAL_LD)\"",
+    // "-DAFL_CLANG_LDPATH=\"$(AFL_CLANG_LDPATH)\"",
+    // "-DAFL_CLANG_FUSELD=\"$(AFL_CLANG_FUSELD)\"",
+    // "-DCLANG_BIN=\"$(CLANG_BIN)\"",
+    // "-DCLANGPP_BIN=\"$(CLANGPP_BIN)\"",
+    // "$(AFL_CLANG_DEBUG_PREFIX)",
+    // "-DLLVM_MINOR=$(LLVM_MINOR)",
+    // "-DLLVM_MAJOR=$(LLVM_MAJOR)",
+    // "-DCFLAGS_OPT=\"$(CFLAGS_OPT)",
 };
 
 const LIB_FLAGS = .{
