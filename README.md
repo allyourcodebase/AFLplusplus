@@ -3,20 +3,14 @@
 [![CI][ci-shd]][ci-url]
 [![LC][lc-shd]][lc-url]
 
-## Zig build of [AFLplusplus executable suite](https://github.com/AFLplusplus/AFLplusplus).
+## Zig build of [AFLplusplus project](https://github.com/AFLplusplus/AFLplusplus).
 
 ### :rocket: Usage
 
 ```sh
 git clone https://github.com/allyourcodebase/AFLplusplus.git
 cd AFLplusplus/
-zig build exes -Doptimize=ReleaseFast
-./zig-out/bin/afl-fuzz
-./zig-out/bin/afl-showmap
-./zig-out/bin/afl-tmin
-./zig-out/bin/afl-analyze
-./zig-out/bin/afl-gotcpu
-./zig-out/bin/afl-as
+zig build -Doptimize=ReleaseFast
 ```
 
 <!-- MARKDOWN LINKS -->
