@@ -44,6 +44,7 @@ pub fn build(b: *std.Build) void {
         .flags = flags.constSlice(),
     });
     performance_obj.addIncludePath(AFLplusplus_inc_path);
+    performance_obj.linkLibC();
 
     const forkserver_obj = b.addObject(.{
         .name = "afl-forkserver",
@@ -56,6 +57,7 @@ pub fn build(b: *std.Build) void {
         .flags = flags.constSlice(),
     });
     forkserver_obj.addIncludePath(AFLplusplus_inc_path);
+    forkserver_obj.linkLibC();
 
     const sharedmem_obj = b.addObject(.{
         .name = "afl-sharedmem",
@@ -68,6 +70,7 @@ pub fn build(b: *std.Build) void {
         .flags = flags.constSlice(),
     });
     sharedmem_obj.addIncludePath(AFLplusplus_inc_path);
+    sharedmem_obj.linkLibC();
 
     const common_obj = b.addObject(.{
         .name = "afl-common",
@@ -80,6 +83,7 @@ pub fn build(b: *std.Build) void {
         .flags = flags.constSlice(),
     });
     common_obj.addIncludePath(AFLplusplus_inc_path);
+    common_obj.linkLibC();
 
     // Executable suite
     const exes_step = b.step("exes", "Install executable suite");
