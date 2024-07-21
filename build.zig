@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub fn build(b: *std.Build) void {
+pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const lib_path_flag = b.fmt("-DAFL_PATH=\"{s}\"", .{b.lib_dir});
@@ -12,6 +12,7 @@ pub fn build(b: *std.Build) void {
     const use_deflate = b.option(bool, "use_deflate", "Use system libdeflate") orelse true;
 
     const build_nyx = b.option(bool, "build_nyx", "Build Nyx mode on Linux") orelse true;
+    const enable_wafl = b.option(bool, "enable_wafl", "Enable WAFL mode on WASI") orelse true;
     const build_coresight = b.option(bool, "build_coresight", "Build CoreSight mode on ARM64 Linux") orelse true;
     const build_unicorn_aarch64 = b.option(bool, "build_unicorn_aarch64", "Build Unicorn mode on ARM64") orelse true;
 
@@ -236,13 +237,115 @@ pub fn build(b: *std.Build) void {
 
     b.default_step.dependOn(exes_step);
 
-    // LLVM instrumentation flags
-    var llvm_flags = std.BoundedArray([]const u8, 16){};
-    llvm_flags.appendSliceAssumeCapacity(&EXE_LLVM_FLAGS);
-    llvm_flags.appendSliceAssumeCapacity(&.{ lib_path_flag, bin_path_flag });
+    // LLVM instrumentation C flags
+    var llvm_c_flags = std.BoundedArray([]const u8, 32){};
+    llvm_c_flags.appendSliceAssumeCapacity(&EXE_LLVM_C_FLAGS);
+    const llvm_version = std.mem.trimRight(u8, b.run(&.{ "llvm-config", "--version" }), "\n");
+    var llvm_version_iter = std.mem.tokenizeScalar(u8, llvm_version, '.');
+    const llvm_major = try std.fmt.parseUnsigned(u8, llvm_version_iter.next().?, 10);
+    const llvm_minor = try std.fmt.parseUnsigned(u8, llvm_version_iter.next().?, 10);
+    const llvm_bin_dir = std.mem.trimRight(u8, b.run(&.{ "llvm-config", "--bindir" }), "\n");
+    const llvm_lib_dir = std.mem.trimRight(u8, b.run(&.{ "llvm-config", "--libdir" }), "\n");
+    llvm_c_flags.appendSliceAssumeCapacity(&.{
+        lib_path_flag,
+        bin_path_flag,
+        b.fmt("-DLLVM_MAJOR={}", .{llvm_major}),
+        b.fmt("-DLLVM_MINOR={}", .{llvm_minor}),
+        b.fmt("-DLLVM_VER=\"{s}\"", .{llvm_version}),
+        b.fmt("-DLLVM_BINDIR=\"{s}\"", .{llvm_bin_dir}),
+        b.fmt("-DLLVM_LIBDIR=\"{s}\"", .{llvm_lib_dir}),
+        b.fmt("-DCLANG_BIN=\"{s}/clang\"", .{llvm_bin_dir}),
+        b.fmt("-DCLANGPP_BIN=\"{s}/clang++\"", .{llvm_bin_dir}),
+    });
+    if (target.query.isNative()) {
+        flags.appendAssumeCapacity("-march=native");
+    }
+
+    // LLVM instrumentation C++ flags
+    var llvm_cpp_flags = std.BoundedArray([]const u8, 32){};
+    llvm_cpp_flags.appendSliceAssumeCapacity(llvm_c_flags.constSlice());
+    llvm_cpp_flags.appendSliceAssumeCapacity(&EXE_LLVM_CPP_FLAGS);
+    llvm_cpp_flags.appendSliceAssumeCapacity(&.{
+        b.fmt("-std={s}", .{if (llvm_major < 10) "gnu++11" else if (llvm_major < 16) "c++14" else "c++17"}),
+    });
+    if (enable_wafl and target.result.os.tag == .wasi) {
+        llvm_cpp_flags.appendSliceAssumeCapacity(&.{ "-DNDEBUG", "-DNO_TLS" });
+    }
+
+    // LLVM instrumentation objects
+    const llvm_inc_dir = std.mem.trimRight(u8, b.run(&.{ "llvm-config", "--includedir" }), "\n");
+    const llvm_inc_path = std.Build.LazyPath{ .cwd_relative = llvm_inc_dir };
+
+    const llvm_common_obj = b.addObject(.{
+        .name = "afl-llvm-common",
+        .pic = true,
+        .target = target,
+        .optimize = optimize,
+    });
+    llvm_common_obj.addCSourceFile(.{
+        .file = AFLplusplus_ins_path.path(b, "afl-llvm-common.cc"),
+        .flags = llvm_cpp_flags.constSlice(),
+    });
+    llvm_common_obj.addIncludePath(AFLplusplus_inc_path);
+    llvm_common_obj.addIncludePath(llvm_inc_path);
+    llvm_common_obj.linkLibCpp();
+
+    const compiler_rt_obj = b.addObject(.{
+        .name = "afl-compiler-rt",
+        .pic = true,
+        .target = target,
+        .optimize = optimize,
+    });
+    compiler_rt_obj.addCSourceFile(.{
+        .file = AFLplusplus_ins_path.path(b, "afl-compiler-rt.o.c"),
+        .flags = llvm_c_flags.constSlice(),
+    });
+    compiler_rt_obj.addIncludePath(AFLplusplus_inc_path);
+    compiler_rt_obj.linkLibC();
+
+    // Library LLVM instrumentation suite
+    const lib_llvm_step = b.step("lib_llvm", "Install library LLVM instrumentation suite");
+
+    const llvm_pass_lib = b.addSharedLibrary(.{
+        .name = "afl-llvm-pass",
+        .pic = true,
+        .target = target,
+        .version = version,
+        .optimize = optimize,
+    });
+    llvm_pass_lib.addCSourceFile(.{
+        .file = AFLplusplus_ins_path.path(b, "afl-llvm-pass.so.cc"),
+        .flags = llvm_cpp_flags.constSlice(),
+    });
+    llvm_pass_lib.addIncludePath(AFLplusplus_inc_path);
+    llvm_pass_lib.addIncludePath(llvm_inc_path);
+    llvm_pass_lib.addObject(llvm_common_obj);
+    llvm_pass_lib.linkLibCpp();
+
+    const llvm_pass_lib_install = b.addInstallArtifact(llvm_pass_lib, .{});
+    lib_llvm_step.dependOn(&llvm_pass_lib_install.step);
+
+    const llvm_lto_lib = b.addSharedLibrary(.{
+        .name = "afl-llvm-lto-instrumentlist",
+        .pic = true,
+        .target = target,
+        .version = version,
+        .optimize = optimize,
+    });
+    llvm_lto_lib.addCSourceFile(.{
+        .file = AFLplusplus_ins_path.path(b, "afl-llvm-lto-instrumentlist.so.cc"),
+        .flags = llvm_cpp_flags.constSlice(),
+    });
+    llvm_lto_lib.addIncludePath(AFLplusplus_inc_path);
+    llvm_lto_lib.addIncludePath(llvm_inc_path);
+    llvm_lto_lib.addObject(llvm_common_obj);
+    llvm_lto_lib.linkLibCpp();
+
+    const llvm_lto_lib_install = b.addInstallArtifact(llvm_lto_lib, .{});
+    lib_llvm_step.dependOn(&llvm_lto_lib_install.step);
 
     // Executable LLVM instrumentation suite
-    const exe_llvm_step = b.step("exe_llvm", "Install executable instrumentation suite");
+    const exe_llvm_step = b.step("exe_llvm", "Install executable LLVM instrumentation suite");
 
     const cc_exe = b.addExecutable(.{
         .name = "afl-cc",
@@ -252,7 +355,7 @@ pub fn build(b: *std.Build) void {
     });
     cc_exe.addCSourceFile(.{
         .file = AFLplusplus_src_path.path(b, "afl-cc.c"),
-        .flags = llvm_flags.constSlice(),
+        .flags = llvm_c_flags.constSlice(),
     });
     cc_exe.addIncludePath(AFLplusplus_inc_path);
     cc_exe.addIncludePath(AFLplusplus_ins_path);
@@ -262,8 +365,23 @@ pub fn build(b: *std.Build) void {
     const cc_exe_install = b.addInstallArtifact(cc_exe, .{});
     exe_llvm_step.dependOn(&cc_exe_install.step);
 
-    // TODO: finish implementing LLVM instrumentation
-    // b.default_step.dependOn(exe_llvm_step);
+    const ld_lto_exe = b.addExecutable(.{
+        .name = "afl-ld-lto",
+        .target = target,
+        .version = version,
+        .optimize = optimize,
+    });
+    ld_lto_exe.addCSourceFile(.{
+        .file = AFLplusplus_src_path.path(b, "afl-ld-lto.c"),
+        .flags = llvm_c_flags.constSlice(),
+    });
+    ld_lto_exe.addIncludePath(AFLplusplus_inc_path);
+    ld_lto_exe.linkLibC();
+
+    const ld_lto_exe_install = b.addInstallArtifact(ld_lto_exe, .{});
+    exe_llvm_step.dependOn(&ld_lto_exe_install.step);
+
+    b.default_step.dependOn(exe_llvm_step);
 
     // Executable utility suite
     const exe_utils_step = b.step("exe_utils", "Install executable utility suite");
@@ -398,7 +516,7 @@ pub fn build(b: *std.Build) void {
         // TODO: Nyx mode (nyx_mode/build_nyx_support.sh)
     }
 
-    if (!target.result.cpu.arch.isAARCH64() or build_unicorn_aarch64) {
+    if (build_unicorn_aarch64 or !target.result.cpu.arch.isAARCH64()) {
         // TODO: Unicorn mode (unicorn_mode/build_unicorn_support.sh)
     }
 
@@ -438,41 +556,37 @@ const EXE_FUZZ_SOURCES = .{
 const EXE_FLAGS = .{
     "-O2",
     "-g",
-    "-Wno-pointer-sign",
-    "-Wno-variadic-macros",
     "-Wall",
     "-Wextra",
+    "-Wno-pointer-sign",
     "-Wno-pointer-arith",
-    "-D_AFL_SPECIAL_PERFORMANCE",
+    "-Wno-variadic-macros",
     "-DDOC_PATH=\"\"",
+    "-D_AFL_SPECIAL_PERFORMANCE",
 };
 
-const EXE_LLVM_FLAGS = .{
+const EXE_LLVM_C_FLAGS = .{
     "-O3",
+    "-g",
     "-funroll-loops",
     "-Wall",
-    "-g",
     "-Wno-cast-qual",
-    "-Wno-variadic-macros",
+    "-Wno-deprecated",
     "-Wno-pointer-sign",
+    "-Wno-unused-result",
     "-Wno-unused-function",
+    "-Wno-variadic-macros",
     "-Wno-deprecated-copy-with-dtor",
-    "-DAFL_CLANG_FLTO=\"-flto=full\"",
     "-DUSE_BINDIR=1",
-    // TODO: properly set these by using system `llvm-config`
-    // "-DLLVM_BINDIR=\"$(LLVM_BINDIR)\"",
-    // "-DVERSION=\"$(VERSION)\"",
-    // "-DLLVM_LIBDIR=\"$(LLVM_LIBDIR)\"",
-    // "-DLLVM_VERSION=\"$(LLVMVER)\"",
-    // "-DAFL_REAL_LD=\"$(AFL_REAL_LD)\"",
-    // "-DAFL_CLANG_LDPATH=\"$(AFL_CLANG_LDPATH)\"",
-    // "-DAFL_CLANG_FUSELD=\"$(AFL_CLANG_FUSELD)\"",
-    // "-DCLANG_BIN=\"$(CLANG_BIN)\"",
-    // "-DCLANGPP_BIN=\"$(CLANGPP_BIN)\"",
-    // "$(AFL_CLANG_DEBUG_PREFIX)",
-    // "-DLLVM_MINOR=$(LLVM_MINOR)",
-    // "-DLLVM_MAJOR=$(LLVM_MAJOR)",
-    // "-DCFLAGS_OPT=\"$(CFLAGS_OPT)",
+    "-DAFL_CLANG_LDPATH=1",
+    "-DAFL_REAL_LD=\"lld\"",
+    "-DAFL_CLANG_FLTO=\"-flto=full\"",
+};
+
+const EXE_LLVM_CPP_FLAGS = .{
+    "-fno-rtti",
+    "-fno-exceptions",
+    "-Wno-deprecated-declarations",
 };
 
 const LIB_FLAGS = .{
