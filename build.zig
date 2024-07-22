@@ -259,9 +259,11 @@ pub fn build(b: *std.Build) !void {
     });
     if (enable_lto) {
         llvm_c_flags.appendSliceAssumeCapacity(&.{
-            "-DAFL_CLANG_LDPATH=1",
-            "-DAFL_REAL_LD=\"lld\"",
             "-DAFL_CLANG_FLTO=\"-flto\"",
+        });
+    } else {
+        llvm_c_flags.appendSliceAssumeCapacity(&.{
+            "-DAFL_CLANG_FLTO=\"\"",
         });
     }
     if (target.query.isNative()) {
@@ -385,6 +387,8 @@ pub fn build(b: *std.Build) !void {
     // LLVM instrumentation executable suite
     const llvm_exes_step = b.step("llvm_exes", "Install LLVM instrumentation executable suite");
 
+    const dynamic_list_install = b.addInstallFile(AFLplusplus_dep.path("dynamic_list.txt"), "dynamic_list.txt");
+
     const cc_exe = b.addExecutable(.{
         .name = "afl-cc",
         .target = target,
@@ -401,6 +405,7 @@ pub fn build(b: *std.Build) !void {
     cc_exe.linkLibC();
 
     const cc_exe_install = b.addInstallArtifact(cc_exe, .{});
+    cc_exe_install.step.dependOn(&dynamic_list_install.step);
     cc_exe_install.step.dependOn(llvm_objs_step);
     cc_exe_install.step.dependOn(llvm_libs_step);
     llvm_exes_step.dependOn(&cc_exe_install.step);
@@ -420,6 +425,7 @@ pub fn build(b: *std.Build) !void {
         ld_lto_exe.linkLibC();
 
         const ld_lto_exe_install = b.addInstallArtifact(ld_lto_exe, .{});
+        ld_lto_exe_install.step.dependOn(&dynamic_list_install.step);
         ld_lto_exe_install.step.dependOn(llvm_objs_step);
         ld_lto_exe_install.step.dependOn(llvm_libs_step);
         llvm_exes_step.dependOn(&ld_lto_exe_install.step);
@@ -580,6 +586,8 @@ const LLVM_EXE_C_FLAGS = .{
     "-Wno-variadic-macros",
     "-Wno-deprecated-copy-with-dtor",
     "-DUSE_BINDIR=1",
+    "-DAFL_REAL_LD=\"lld\"",
+    "-DAFL_CLANG_LDPATH=1",
 };
 
 const LLVM_EXE_CPP_FLAGS = .{
