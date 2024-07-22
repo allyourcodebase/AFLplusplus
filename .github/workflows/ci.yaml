@@ -27,5 +27,6 @@ jobs:
 
       - name: Run `build`
         run: |
-          llvm-config --libs
-          zig build
+          zig build util_libs
+          zig build exes
+          zig build fmt
