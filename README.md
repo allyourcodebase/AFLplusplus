@@ -10,12 +10,12 @@
 ```sh
 git clone https://github.com/allyourcodebase/AFLplusplus.git
 cd AFLplusplus/
-zig build -Doptimize=ReleaseFast
+zig build
 ```
 
 ### Building instrumented executables
-For help building instrumented executables, see [kristoff-it/zig-afl-kit](https://github.com/kristoff-it/zig-afl-kit).
 
+For help building instrumented executables, see [kristoff-it/zig-afl-kit](https://github.com/kristoff-it/zig-afl-kit).
 
 <!-- MARKDOWN LINKS -->
 

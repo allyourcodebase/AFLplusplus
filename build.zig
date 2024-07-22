@@ -10,11 +10,11 @@ pub fn build(b: *std.Build) !void {
 
     // Custom options
     const use_z = b.option(bool, "use-z", "Use system zlib") orelse true;
+    const enable_lto = b.option(bool, "enable-lto", "Enable LTO mode") orelse true;
     const build_nyx = b.option(bool, "build-nyx", "Build Nyx mode on Linux") orelse true;
     const enable_wafl = b.option(bool, "enable-wafl", "Enable WAFL mode on WASI") orelse false;
     const build_coresight = b.option(bool, "build-coresight", "Build CoreSight mode on ARM64 Linux") orelse true;
     const build_unicorn_aarch64 = b.option(bool, "build-unicorn-aarch64", "Build Unicorn mode on ARM64") orelse true;
-    const enable_lto = b.option(bool, "enable-lto", "Enable LTO mode") orelse if (target.result.isDarwin()) false else true;
 
     // Dependencies
     const AFLplusplus_dep = b.dependency("AFLplusplus", .{});
@@ -259,13 +259,9 @@ pub fn build(b: *std.Build) !void {
         b.fmt("-DCLANGPP_BIN=\"{s}/clang++\"", .{llvm_bin_dir}),
     });
     if (enable_lto) {
-        llvm_c_flags.appendSliceAssumeCapacity(&.{
-            "-DAFL_CLANG_FLTO=\"-flto\"",
-        });
+        llvm_c_flags.appendAssumeCapacity("-DAFL_CLANG_FLTO=\"-flto\"");
     } else {
-        llvm_c_flags.appendSliceAssumeCapacity(&.{
-            "-DAFL_CLANG_FLTO=\"\"",
-        });
+        llvm_c_flags.appendAssumeCapacity("-DAFL_CLANG_FLTO=\"\"");
     }
     if (target.query.isNative()) {
         llvm_c_flags.appendAssumeCapacity("-march=native");
@@ -280,11 +276,6 @@ pub fn build(b: *std.Build) !void {
     });
     if (enable_wafl and target.result.isWasm()) {
         llvm_cpp_flags.appendSliceAssumeCapacity(&.{ "-DNDEBUG", "-DNO_TLS" });
-    }
-    if (target.result.isDarwin()) {
-        llvm_cpp_flags.appendSliceAssumeCapacity(&.{ "-Wl,-flat_namespace", "-Wl,-undefined,suppress" });
-    } else {
-        llvm_cpp_flags.appendAssumeCapacity("-Wl,-znodelete");
     }
 
     // LLVM instrumentation object suite
@@ -336,8 +327,15 @@ pub fn build(b: *std.Build) !void {
     const llvm_libs_step = b.step("llvm_libs", "Install LLVM instrumentation library suite");
 
     const llvm_inc_dir = std.mem.trimRight(u8, b.run(&.{ "llvm-config", "--includedir" }), "\n");
-    const llvm_name = std.mem.trimRight(u8, b.run(&.{ "llvm-config", "--libs" }), "\n")[2..];
     const llvm_inc_path = std.Build.LazyPath{ .cwd_relative = llvm_inc_dir };
+
+    const llvm_libs = std.mem.trimRight(u8, b.run(&.{ "llvm-config", "--libs" }), "\n");
+    const llvm_name: []const u8 = blk: {
+        if (std.mem.indexOf(u8, llvm_libs, "-lLLVM-1")) |llvm_lib_name_idx| {
+            break :blk llvm_libs[llvm_lib_name_idx + 2 .. llvm_lib_name_idx + 9];
+        }
+        unreachable;
+    };
 
     const llvm_common_obj = b.addObject(.{
         .name = "afl-llvm-common",
@@ -418,7 +416,7 @@ pub fn build(b: *std.Build) !void {
     cc_exe_install.step.dependOn(llvm_libs_step);
     llvm_exes_step.dependOn(&cc_exe_install.step);
 
-    if (!target.result.isDarwin()) {
+    if (enable_lto) {
         const ld_lto_exe = b.addExecutable(.{
             .name = "afl-ld-lto",
             .target = target,
@@ -600,6 +598,7 @@ const LLVM_EXE_C_FLAGS = .{
 
 const LLVM_EXE_CPP_FLAGS = .{
     "-fno-rtti",
+    "-Wl,-znodelete",
     "-fno-exceptions",
     "-Wno-deprecated-declarations",
 };

@@ -26,4 +26,4 @@ jobs:
         uses: mlugg/setup-zig@v1
 
       - name: Run `build`
-        run: zig build -Doptimize=ReleaseFast
+        run: zig build
