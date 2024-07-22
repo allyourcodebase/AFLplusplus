@@ -465,7 +465,7 @@ pub fn build(b: *std.Build) !void {
         const tokencap_lib_install = b.addInstallArtifact(tokencap_lib, .{ .dylib_symlinks = false });
         util_libs_step.dependOn(&tokencap_lib_install.step);
 
-        if (build_coresight and target.result.cpu.arch.isAARCH64() and target.result.ofmt == .elf) {
+        if (build_coresight and target.result.cpu.arch.isAARCH64() and target.result.os.tag == .linux) {
             // TODO: CoreSight mode (coresight_mode/GNUmakefile)
         }
     }
