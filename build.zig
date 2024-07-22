@@ -3,18 +3,18 @@ const std = @import("std");
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const ptr_bit_width = target.result.ptrBitWidth();
     const lib_path_flag = b.fmt("-DAFL_PATH=\"{s}\"", .{b.lib_dir});
     const bin_path_flag = b.fmt("-DBIN_PATH=\"{s}\"", .{b.exe_dir});
     const version = std.SemanticVersion{ .major = 4, .minor = 21, .patch = 0 };
 
     // Custom options
     const use_z = b.option(bool, "use_z", "Use system zlib") orelse true;
-    const use_deflate = b.option(bool, "use_deflate", "Use system libdeflate") orelse true;
-
     const build_nyx = b.option(bool, "build_nyx", "Build Nyx mode on Linux") orelse true;
     const enable_wafl = b.option(bool, "enable_wafl", "Enable WAFL mode on WASI") orelse true;
     const build_coresight = b.option(bool, "build_coresight", "Build CoreSight mode on ARM64 Linux") orelse true;
     const build_unicorn_aarch64 = b.option(bool, "build_unicorn_aarch64", "Build Unicorn mode on ARM64") orelse true;
+    const enable_lto = b.option(bool, "enable_lto", "Enable LTO mode") orelse if (target.result.isDarwin()) false else true;
 
     // Dependencies
     const AFLplusplus_dep = b.dependency("AFLplusplus", .{});
@@ -239,7 +239,7 @@ pub fn build(b: *std.Build) !void {
 
     // LLVM instrumentation C flags
     var llvm_c_flags = std.BoundedArray([]const u8, 32){};
-    llvm_c_flags.appendSliceAssumeCapacity(&EXE_LLVM_C_FLAGS);
+    llvm_c_flags.appendSliceAssumeCapacity(&LLVM_EXE_C_FLAGS);
     const llvm_version = std.mem.trimRight(u8, b.run(&.{ "llvm-config", "--version" }), "\n");
     var llvm_version_iter = std.mem.tokenizeScalar(u8, llvm_version, '.');
     const llvm_major = try std.fmt.parseUnsigned(u8, llvm_version_iter.next().?, 10);
@@ -257,22 +257,81 @@ pub fn build(b: *std.Build) !void {
         b.fmt("-DCLANG_BIN=\"{s}/clang\"", .{llvm_bin_dir}),
         b.fmt("-DCLANGPP_BIN=\"{s}/clang++\"", .{llvm_bin_dir}),
     });
+    if (enable_lto) {
+        llvm_c_flags.appendSliceAssumeCapacity(&.{
+            "-DAFL_CLANG_LDPATH=1",
+            "-DAFL_REAL_LD=\"lld\"",
+            "-DAFL_CLANG_FLTO=\"-flto\"",
+        });
+    }
     if (target.query.isNative()) {
-        flags.appendAssumeCapacity("-march=native");
+        llvm_c_flags.appendAssumeCapacity("-march=native");
     }
 
     // LLVM instrumentation C++ flags
-    var llvm_cpp_flags = std.BoundedArray([]const u8, 32){};
+    var llvm_cpp_flags = std.BoundedArray([]const u8, 64){};
     llvm_cpp_flags.appendSliceAssumeCapacity(llvm_c_flags.constSlice());
-    llvm_cpp_flags.appendSliceAssumeCapacity(&EXE_LLVM_CPP_FLAGS);
+    llvm_cpp_flags.appendSliceAssumeCapacity(&LLVM_EXE_CPP_FLAGS);
     llvm_cpp_flags.appendSliceAssumeCapacity(&.{
         b.fmt("-std={s}", .{if (llvm_major < 10) "gnu++11" else if (llvm_major < 16) "c++14" else "c++17"}),
     });
-    if (enable_wafl and target.result.os.tag == .wasi) {
+    if (enable_wafl and target.result.isWasm()) {
         llvm_cpp_flags.appendSliceAssumeCapacity(&.{ "-DNDEBUG", "-DNO_TLS" });
     }
+    if (target.result.isDarwin()) {
+        llvm_cpp_flags.appendSliceAssumeCapacity(&.{ "-Wl,-flat_namespace", "-Wl,-undefined,suppress" });
+    } else {
+        llvm_cpp_flags.appendAssumeCapacity("-Wl,-znodelete");
+    }
 
-    // LLVM instrumentation objects
+    // LLVM instrumentation object suite
+    const llvm_objs_step = b.step("llvm_objs", "Install LLVM instrumentation object suite");
+
+    inline for (LLVM_OBJ_NAMES) |NAME| {
+        const has_lto = std.mem.endsWith(u8, NAME, "lto");
+        if (has_lto) {
+            llvm_c_flags.appendAssumeCapacity("-O0");
+            if (enable_lto) {
+                llvm_c_flags.appendAssumeCapacity("-flto");
+            }
+        }
+        defer if (has_lto) {
+            _ = llvm_c_flags.pop();
+            if (enable_lto) {
+                _ = llvm_c_flags.pop();
+            }
+        };
+        inline for (.{ "", if (ptr_bit_width == 32) "32" else "64" }) |MODE| {
+            if (MODE.len > 0) {
+                llvm_c_flags.appendAssumeCapacity("-m" ++ MODE);
+            }
+            defer if (MODE.len > 0) {
+                _ = llvm_c_flags.pop();
+            };
+            const obj = b.addObject(.{
+                .name = NAME,
+                .pic = true,
+                .target = target,
+                .optimize = optimize,
+            });
+            obj.addCSourceFile(.{
+                .file = AFLplusplus_ins_path.path(b, NAME ++ ".o.c"),
+                .flags = llvm_c_flags.constSlice(),
+            });
+            obj.addIncludePath(AFLplusplus_inc_path);
+            obj.linkLibC();
+
+            const obj_install = b.addInstallBinFile(
+                obj.getEmittedBin(),
+                NAME ++ if (MODE.len > 0) "-" ++ MODE else "" ++ ".o",
+            );
+            llvm_objs_step.dependOn(&obj_install.step);
+        }
+    }
+
+    // LLVM instrumentation library suite
+    const llvm_libs_step = b.step("llvm_libs", "Install LLVM instrumentation library suite");
+
     const llvm_inc_dir = std.mem.trimRight(u8, b.run(&.{ "llvm-config", "--includedir" }), "\n");
     const llvm_inc_path = std.Build.LazyPath{ .cwd_relative = llvm_inc_dir };
 
@@ -290,62 +349,41 @@ pub fn build(b: *std.Build) !void {
     llvm_common_obj.addIncludePath(llvm_inc_path);
     llvm_common_obj.linkLibCpp();
 
-    const compiler_rt_obj = b.addObject(.{
-        .name = "afl-compiler-rt",
-        .pic = true,
-        .target = target,
-        .optimize = optimize,
-    });
-    compiler_rt_obj.addCSourceFile(.{
-        .file = AFLplusplus_ins_path.path(b, "afl-compiler-rt.o.c"),
-        .flags = llvm_c_flags.constSlice(),
-    });
-    compiler_rt_obj.addIncludePath(AFLplusplus_inc_path);
-    compiler_rt_obj.linkLibC();
+    var llvm_lib_names = std.BoundedArray([]const u8, 16){};
+    llvm_lib_names.appendSliceAssumeCapacity(&LLVM_LIB_NAMES);
+    if (enable_lto) {
+        llvm_lib_names.appendSliceAssumeCapacity(&LLVM_LTO_LIB_NAMES);
+    }
+    for (llvm_lib_names.constSlice()) |name| {
+        const lib = b.addSharedLibrary(.{
+            .name = name,
+            .pic = true,
+            .target = target,
+            .version = version,
+            .optimize = optimize,
+        });
+        const file_name = if (std.mem.startsWith(u8, name, "cmp") or std.mem.startsWith(u8, name, "inj"))
+            b.fmt("{s}.cc", .{name})
+        else
+            b.fmt("{s}.so.cc", .{name});
+        lib.addCSourceFile(.{
+            .file = AFLplusplus_ins_path.path(b, file_name),
+            .flags = llvm_cpp_flags.constSlice(),
+        });
+        lib.addIncludePath(AFLplusplus_inc_path);
+        lib.addIncludePath(llvm_inc_path);
+        lib.addObject(llvm_common_obj);
+        lib.linkLibCpp();
 
-    // Library LLVM instrumentation suite
-    const lib_llvm_step = b.step("lib_llvm", "Install library LLVM instrumentation suite");
+        const lib_install = b.addInstallArtifact(lib, .{
+            .dest_sub_path = b.fmt("{s}.so", .{name}),
+            .dylib_symlinks = false,
+        });
+        llvm_libs_step.dependOn(&lib_install.step);
+    }
 
-    const llvm_pass_lib = b.addSharedLibrary(.{
-        .name = "afl-llvm-pass",
-        .pic = true,
-        .target = target,
-        .version = version,
-        .optimize = optimize,
-    });
-    llvm_pass_lib.addCSourceFile(.{
-        .file = AFLplusplus_ins_path.path(b, "afl-llvm-pass.so.cc"),
-        .flags = llvm_cpp_flags.constSlice(),
-    });
-    llvm_pass_lib.addIncludePath(AFLplusplus_inc_path);
-    llvm_pass_lib.addIncludePath(llvm_inc_path);
-    llvm_pass_lib.addObject(llvm_common_obj);
-    llvm_pass_lib.linkLibCpp();
-
-    const llvm_pass_lib_install = b.addInstallArtifact(llvm_pass_lib, .{});
-    lib_llvm_step.dependOn(&llvm_pass_lib_install.step);
-
-    const llvm_lto_lib = b.addSharedLibrary(.{
-        .name = "afl-llvm-lto-instrumentlist",
-        .pic = true,
-        .target = target,
-        .version = version,
-        .optimize = optimize,
-    });
-    llvm_lto_lib.addCSourceFile(.{
-        .file = AFLplusplus_ins_path.path(b, "afl-llvm-lto-instrumentlist.so.cc"),
-        .flags = llvm_cpp_flags.constSlice(),
-    });
-    llvm_lto_lib.addIncludePath(AFLplusplus_inc_path);
-    llvm_lto_lib.addIncludePath(llvm_inc_path);
-    llvm_lto_lib.addObject(llvm_common_obj);
-    llvm_lto_lib.linkLibCpp();
-
-    const llvm_lto_lib_install = b.addInstallArtifact(llvm_lto_lib, .{});
-    lib_llvm_step.dependOn(&llvm_lto_lib_install.step);
-
-    // Executable LLVM instrumentation suite
-    const exe_llvm_step = b.step("exe_llvm", "Install executable LLVM instrumentation suite");
+    // LLVM instrumentation executable suite
+    const llvm_exes_step = b.step("llvm_exes", "Install LLVM instrumentation executable suite");
 
     const cc_exe = b.addExecutable(.{
         .name = "afl-cc",
@@ -363,150 +401,114 @@ pub fn build(b: *std.Build) !void {
     cc_exe.linkLibC();
 
     const cc_exe_install = b.addInstallArtifact(cc_exe, .{});
-    exe_llvm_step.dependOn(&cc_exe_install.step);
+    cc_exe_install.step.dependOn(llvm_objs_step);
+    cc_exe_install.step.dependOn(llvm_libs_step);
+    llvm_exes_step.dependOn(&cc_exe_install.step);
 
-    const ld_lto_exe = b.addExecutable(.{
-        .name = "afl-ld-lto",
-        .target = target,
-        .version = version,
-        .optimize = optimize,
-    });
-    ld_lto_exe.addCSourceFile(.{
-        .file = AFLplusplus_src_path.path(b, "afl-ld-lto.c"),
-        .flags = llvm_c_flags.constSlice(),
-    });
-    ld_lto_exe.addIncludePath(AFLplusplus_inc_path);
-    ld_lto_exe.linkLibC();
+    if (!target.result.isDarwin()) {
+        const ld_lto_exe = b.addExecutable(.{
+            .name = "afl-ld-lto",
+            .target = target,
+            .version = version,
+            .optimize = optimize,
+        });
+        ld_lto_exe.addCSourceFile(.{
+            .file = AFLplusplus_src_path.path(b, "afl-ld-lto.c"),
+            .flags = llvm_c_flags.constSlice(),
+        });
+        ld_lto_exe.addIncludePath(AFLplusplus_inc_path);
+        ld_lto_exe.linkLibC();
 
-    const ld_lto_exe_install = b.addInstallArtifact(ld_lto_exe, .{});
-    exe_llvm_step.dependOn(&ld_lto_exe_install.step);
-
-    b.default_step.dependOn(exe_llvm_step);
-
-    // Executable utility suite
-    const exe_utils_step = b.step("exe_utils", "Install executable utility suite");
-
-    const network_client_exe_util = b.addExecutable(.{
-        .name = "afl-network-client",
-        .target = target,
-        .version = version,
-        .optimize = optimize,
-    });
-    network_client_exe_util.addCSourceFile(.{
-        .file = AFLplusplus_utl_path.path(b, "afl_network_proxy/afl-network-client.c"),
-        .flags = flags.constSlice(),
-    });
-    if (use_deflate) {
-        network_client_exe_util.root_module.addCMacro("USE_DEFLATE", "1");
-        network_client_exe_util.linkSystemLibrary("deflate");
+        const ld_lto_exe_install = b.addInstallArtifact(ld_lto_exe, .{});
+        ld_lto_exe_install.step.dependOn(llvm_objs_step);
+        ld_lto_exe_install.step.dependOn(llvm_libs_step);
+        llvm_exes_step.dependOn(&ld_lto_exe_install.step);
     }
-    network_client_exe_util.addIncludePath(AFLplusplus_inc_path);
-    network_client_exe_util.linkLibC();
 
-    const network_client_exe_util_install = b.addInstallArtifact(network_client_exe_util, .{});
-    exe_utils_step.dependOn(&network_client_exe_util_install.step);
+    b.default_step.dependOn(llvm_exes_step);
 
-    const network_server_exe_util = b.addExecutable(.{
-        .name = "afl-network-server",
-        .target = target,
-        .version = version,
-        .optimize = optimize,
-    });
-    network_server_exe_util.addCSourceFile(.{
-        .file = AFLplusplus_utl_path.path(b, "afl_network_proxy/afl-network-server.c"),
-        .flags = flags.constSlice(),
-    });
-    if (use_deflate) {
-        network_server_exe_util.root_module.addCMacro("USE_DEFLATE", "1");
-        network_server_exe_util.linkSystemLibrary("deflate");
-    }
-    network_server_exe_util.addIncludePath(AFLplusplus_inc_path);
-    network_server_exe_util.addObject(forkserver_obj);
-    network_server_exe_util.addObject(sharedmem_obj);
-    network_server_exe_util.addObject(common_obj);
-    network_server_exe_util.linkLibC();
+    // Utility library suite
+    const util_libs_step = b.step("util_libs", "Install utility library suite");
 
-    const network_server_exe_util_install = b.addInstallArtifact(network_server_exe_util, .{});
-    exe_utils_step.dependOn(&network_server_exe_util_install.step);
-
-    b.default_step.dependOn(exe_utils_step);
-
-    // Library utility suite
-    const lib_utils_step = b.step("lib_utils", "Install library utility suite");
-
-    if (!target.result.os.tag.isDarwin()) {
-        const dislocator_lib_util = b.addSharedLibrary(.{
+    if (!target.result.isDarwin()) {
+        const dislocator_lib = b.addSharedLibrary(.{
             .name = "dislocator",
             .pic = true,
             .target = target,
             .version = version,
             .optimize = optimize,
         });
-        dislocator_lib_util.addCSourceFile(.{
+        dislocator_lib.addCSourceFile(.{
             .file = AFLplusplus_utl_path.path(b, "libdislocator/libdislocator.so.c"),
-            .flags = &(LIB_FLAGS ++ .{ "-DUSEHUGEPAGE", "-DUSENAMEDPAGE" }),
+            .flags = &(UTIL_LIB_FLAGS ++ .{ "-DUSEHUGEPAGE", "-DUSENAMEDPAGE" }),
         });
-        dislocator_lib_util.addIncludePath(AFLplusplus_inc_path);
-        dislocator_lib_util.linkLibC();
+        dislocator_lib.addIncludePath(AFLplusplus_inc_path);
+        dislocator_lib.linkLibC();
 
-        const dislocator_lib_util_install = b.addInstallArtifact(dislocator_lib_util, .{});
-        lib_utils_step.dependOn(&dislocator_lib_util_install.step);
+        const dislocator_lib_install = b.addInstallArtifact(dislocator_lib, .{ .dylib_symlinks = false });
+        util_libs_step.dependOn(&dislocator_lib_install.step);
 
-        const tokencap_lib_util = b.addSharedLibrary(.{
+        const tokencap_lib = b.addSharedLibrary(.{
             .name = "tokencap",
             .pic = true,
             .target = target,
             .version = version,
             .optimize = optimize,
         });
-        tokencap_lib_util.addCSourceFile(.{
+        tokencap_lib.addCSourceFile(.{
             .file = AFLplusplus_utl_path.path(b, "libtokencap/libtokencap.so.c"),
-            .flags = &LIB_FLAGS,
+            .flags = &UTIL_LIB_FLAGS,
         });
-        tokencap_lib_util.addIncludePath(AFLplusplus_inc_path);
-        tokencap_lib_util.linkLibC();
+        tokencap_lib.addIncludePath(AFLplusplus_inc_path);
+        tokencap_lib.linkLibC();
 
-        const tokencap_lib_util_install = b.addInstallArtifact(tokencap_lib_util, .{});
-        lib_utils_step.dependOn(&tokencap_lib_util_install.step);
+        const tokencap_lib_install = b.addInstallArtifact(tokencap_lib, .{ .dylib_symlinks = false });
+        util_libs_step.dependOn(&tokencap_lib_install.step);
 
         if (build_coresight and target.result.cpu.arch.isAARCH64() and target.result.ofmt == .elf) {
             // TODO: CoreSight mode (coresight_mode/GNUmakefile)
         }
     }
 
-    const socketfuzz_lib_util = b.addSharedLibrary(.{
+    const socketfuzz_lib = b.addSharedLibrary(.{
         .name = "socketfuzz",
         .pic = true,
         .target = target,
         .version = version,
         .optimize = optimize,
     });
-    socketfuzz_lib_util.addCSourceFile(.{
+    socketfuzz_lib.addCSourceFile(.{
         .file = AFLplusplus_utl_path.path(b, "socket_fuzzing/socketfuzz.c"),
-        .flags = &.{ if (target.result.ptrBitWidth() == 32) "-m32" else "-m64", "-Wall", "-Wextra" },
+        .flags = &.{ if (ptr_bit_width == 32) "-m32" else "-m64", "-Wall", "-Wextra" },
     });
-    socketfuzz_lib_util.addIncludePath(AFLplusplus_inc_path);
-    socketfuzz_lib_util.linkLibC();
+    socketfuzz_lib.addIncludePath(AFLplusplus_inc_path);
+    socketfuzz_lib.linkLibC();
 
-    const socketfuzz_lib_util_install = b.addInstallArtifact(socketfuzz_lib_util, .{});
-    lib_utils_step.dependOn(&socketfuzz_lib_util_install.step);
+    const socketfuzz_lib_install = b.addInstallArtifact(socketfuzz_lib, .{
+        .dest_sub_path = if (ptr_bit_width == 32) "socketfuzz32.so" else "socketfuzz64.so",
+        .dylib_symlinks = false,
+    });
+    util_libs_step.dependOn(&socketfuzz_lib_install.step);
 
-    const argvfuzz_lib_util = b.addSharedLibrary(.{
+    const argvfuzz_lib = b.addSharedLibrary(.{
         .name = "argvfuzz",
         .pic = true,
         .target = target,
         .version = version,
         .optimize = optimize,
     });
-    argvfuzz_lib_util.addCSourceFile(.{
+    argvfuzz_lib.addCSourceFile(.{
         .file = AFLplusplus_utl_path.path(b, "argv_fuzzing/argvfuzz.c"),
-        .flags = &.{ if (target.result.ptrBitWidth() == 32) "-m32" else "-m64", "-Wall", "-Wextra" },
+        .flags = &.{ if (ptr_bit_width == 32) "-m32" else "-m64", "-Wall", "-Wextra" },
     });
-    argvfuzz_lib_util.addIncludePath(AFLplusplus_inc_path);
-    argvfuzz_lib_util.linkLibC();
+    argvfuzz_lib.addIncludePath(AFLplusplus_inc_path);
+    argvfuzz_lib.linkLibC();
 
-    const argvfuzz_lib_util_install = b.addInstallArtifact(argvfuzz_lib_util, .{});
-    lib_utils_step.dependOn(&argvfuzz_lib_util_install.step);
+    const argvfuzz_lib_install = b.addInstallArtifact(argvfuzz_lib, .{
+        .dest_sub_path = if (ptr_bit_width == 32) "argvfuzz32.so" else "argvfuzz64.so",
+        .dylib_symlinks = false,
+    });
+    util_libs_step.dependOn(&argvfuzz_lib_install.step);
 
     // TODO: FRIDA mode (frida_mode/GNUmakefile)
 
@@ -520,7 +522,7 @@ pub fn build(b: *std.Build) !void {
         // TODO: Unicorn mode (unicorn_mode/build_unicorn_support.sh)
     }
 
-    b.default_step.dependOn(lib_utils_step);
+    b.default_step.dependOn(util_libs_step);
 
     // Formatting checks
     const fmt_step = b.step("fmt", "Run formatting checks");
@@ -565,7 +567,7 @@ const EXE_FLAGS = .{
     "-D_AFL_SPECIAL_PERFORMANCE",
 };
 
-const EXE_LLVM_C_FLAGS = .{
+const LLVM_EXE_C_FLAGS = .{
     "-O3",
     "-g",
     "-funroll-loops",
@@ -578,18 +580,38 @@ const EXE_LLVM_C_FLAGS = .{
     "-Wno-variadic-macros",
     "-Wno-deprecated-copy-with-dtor",
     "-DUSE_BINDIR=1",
-    "-DAFL_CLANG_LDPATH=1",
-    "-DAFL_REAL_LD=\"lld\"",
-    "-DAFL_CLANG_FLTO=\"-flto=full\"",
 };
 
-const EXE_LLVM_CPP_FLAGS = .{
+const LLVM_EXE_CPP_FLAGS = .{
     "-fno-rtti",
     "-fno-exceptions",
     "-Wno-deprecated-declarations",
 };
 
-const LIB_FLAGS = .{
+const LLVM_OBJ_NAMES = .{
+    "afl-compiler-rt",
+    "afl-llvm-rt-lto",
+};
+
+const LLVM_LIB_NAMES = .{
+    "afl-llvm-dict2file",
+    "afl-llvm-pass",
+    "cmplog-instructions-pass",
+    "cmplog-routines-pass",
+    "cmplog-switches-pass",
+    "compare-transform-pass",
+    "injection-pass",
+    "SanitizerCoveragePCGUARD",
+    "split-compares-pass",
+    "split-switches-pass",
+};
+
+const LLVM_LTO_LIB_NAMES = .{
+    "afl-llvm-lto-instrumentlist",
+    "SanitizerCoverageLTO",
+};
+
+const UTIL_LIB_FLAGS = .{
     "-O3",
     "-g",
     "-funroll-loops",
