@@ -5,6 +5,10 @@
 
 ## Zig build of [AFLplusplus project](https://github.com/AFLplusplus/AFLplusplus).
 
+
+### Dependencies
+Requires a build of LLVM. You can either get one from your favorite package manager, or [build it yourself](https://github.com/ziglang/zig/wiki/How-to-build-LLVM,-libclang,-and-liblld-from-source).
+
 ### :rocket: Usage
 
 ```sh
