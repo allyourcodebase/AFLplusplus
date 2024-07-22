@@ -9,12 +9,12 @@ pub fn build(b: *std.Build) !void {
     const version = std.SemanticVersion{ .major = 4, .minor = 21, .patch = 0 };
 
     // Custom options
-    const use_z = b.option(bool, "use_z", "Use system zlib") orelse true;
-    const build_nyx = b.option(bool, "build_nyx", "Build Nyx mode on Linux") orelse true;
-    const enable_wafl = b.option(bool, "enable_wafl", "Enable WAFL mode on WASI") orelse false;
-    const build_coresight = b.option(bool, "build_coresight", "Build CoreSight mode on ARM64 Linux") orelse true;
-    const build_unicorn_aarch64 = b.option(bool, "build_unicorn_aarch64", "Build Unicorn mode on ARM64") orelse true;
-    const enable_lto = b.option(bool, "enable_lto", "Enable LTO mode") orelse if (target.result.isDarwin()) false else true;
+    const use_z = b.option(bool, "use-z", "Use system zlib") orelse true;
+    const build_nyx = b.option(bool, "build-nyx", "Build Nyx mode on Linux") orelse true;
+    const enable_wafl = b.option(bool, "enable-wafl", "Enable WAFL mode on WASI") orelse false;
+    const build_coresight = b.option(bool, "build-coresight", "Build CoreSight mode on ARM64 Linux") orelse true;
+    const build_unicorn_aarch64 = b.option(bool, "build-unicorn-aarch64", "Build Unicorn mode on ARM64") orelse true;
+    const enable_lto = b.option(bool, "enable-lto", "Enable LTO mode") orelse if (target.result.isDarwin()) false else true;
 
     // Dependencies
     const AFLplusplus_dep = b.dependency("AFLplusplus", .{});
