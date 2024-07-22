@@ -11,7 +11,7 @@ pub fn build(b: *std.Build) !void {
     // Custom options
     const use_z = b.option(bool, "use_z", "Use system zlib") orelse true;
     const build_nyx = b.option(bool, "build_nyx", "Build Nyx mode on Linux") orelse true;
-    const enable_wafl = b.option(bool, "enable_wafl", "Enable WAFL mode on WASI") orelse true;
+    const enable_wafl = b.option(bool, "enable_wafl", "Enable WAFL mode on WASI") orelse false;
     const build_coresight = b.option(bool, "build_coresight", "Build CoreSight mode on ARM64 Linux") orelse true;
     const build_unicorn_aarch64 = b.option(bool, "build_unicorn_aarch64", "Build Unicorn mode on ARM64") orelse true;
     const enable_lto = b.option(bool, "enable_lto", "Enable LTO mode") orelse if (target.result.isDarwin()) false else true;
