@@ -246,6 +246,7 @@ pub fn build(b: *std.Build) !void {
     const llvm_minor = try std.fmt.parseUnsigned(u8, llvm_version_iter.next().?, 10);
     const llvm_bin_dir = std.mem.trimRight(u8, b.run(&.{ "llvm-config", "--bindir" }), "\n");
     const llvm_lib_dir = std.mem.trimRight(u8, b.run(&.{ "llvm-config", "--libdir" }), "\n");
+    const llvm_lib_path = std.Build.LazyPath{ .cwd_relative = llvm_lib_dir };
     llvm_c_flags.appendSliceAssumeCapacity(&.{
         lib_path_flag,
         bin_path_flag,
@@ -335,6 +336,7 @@ pub fn build(b: *std.Build) !void {
     const llvm_libs_step = b.step("llvm_libs", "Install LLVM instrumentation library suite");
 
     const llvm_inc_dir = std.mem.trimRight(u8, b.run(&.{ "llvm-config", "--includedir" }), "\n");
+    const llvm_name = std.mem.trimRight(u8, b.run(&.{ "llvm-config", "--libs" }), "\n")[2..];
     const llvm_inc_path = std.Build.LazyPath{ .cwd_relative = llvm_inc_dir };
 
     const llvm_common_obj = b.addObject(.{
@@ -349,6 +351,8 @@ pub fn build(b: *std.Build) !void {
     });
     llvm_common_obj.addIncludePath(AFLplusplus_inc_path);
     llvm_common_obj.addIncludePath(llvm_inc_path);
+    llvm_common_obj.addLibraryPath(llvm_lib_path);
+    llvm_common_obj.linkSystemLibrary(llvm_name);
     llvm_common_obj.linkLibCpp();
 
     var llvm_lib_names = std.BoundedArray([]const u8, 16){};
@@ -374,6 +378,8 @@ pub fn build(b: *std.Build) !void {
         });
         lib.addIncludePath(AFLplusplus_inc_path);
         lib.addIncludePath(llvm_inc_path);
+        lib.addLibraryPath(llvm_lib_path);
+        lib.linkSystemLibrary(llvm_name);
         lib.addObject(llvm_common_obj);
         lib.linkLibCpp();
 
@@ -401,6 +407,8 @@ pub fn build(b: *std.Build) !void {
     });
     cc_exe.addIncludePath(AFLplusplus_inc_path);
     cc_exe.addIncludePath(AFLplusplus_ins_path);
+    cc_exe.addLibraryPath(llvm_lib_path);
+    cc_exe.linkSystemLibrary(llvm_name);
     cc_exe.addObject(common_obj);
     cc_exe.linkLibC();
 
