@@ -26,4 +26,6 @@ jobs:
         uses: mlugg/setup-zig@v1
 
       - name: Run `build`
-        run: zig build
+        run: |
+          llvm-config --libs
+          zig build
