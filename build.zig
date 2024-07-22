@@ -334,7 +334,7 @@ pub fn build(b: *std.Build) !void {
         if (std.mem.indexOf(u8, llvm_libs, "-lLLVM-1")) |llvm_lib_name_idx| {
             break :blk llvm_libs[llvm_lib_name_idx + 2 .. llvm_lib_name_idx + 9];
         }
-        unreachable;
+        break :blk "LLVM";
     };
 
     const llvm_common_obj = b.addObject(.{
