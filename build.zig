@@ -387,7 +387,7 @@ pub fn build(b: *std.Build) !void {
     // LLVM instrumentation executable suite
     const llvm_exes_step = b.step("llvm_exes", "Install LLVM instrumentation executable suite");
 
-    const dynamic_list_install = b.addInstallFile(AFLplusplus_dep.path("dynamic_list.txt"), "dynamic_list.txt");
+    const dynamic_list_install = b.addInstallFile(AFLplusplus_dep.path("dynamic_list.txt"), "lib/dynamic_list.txt");
 
     const cc_exe = b.addExecutable(.{
         .name = "afl-cc",
