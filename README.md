@@ -13,6 +13,10 @@ cd AFLplusplus/
 zig build -Doptimize=ReleaseFast
 ```
 
+### Building instrumented executables
+For help building instrumented executables, see [kristoff-it/zig-afl-kit](https://github.com/kristoff-it/zig-afl-kit).
+
+
 <!-- MARKDOWN LINKS -->
 
 [ci-shd]: https://img.shields.io/github/actions/workflow/status/allyourcodebase/AFLplusplus/ci.yaml?branch=main&style=for-the-badge&logo=github&label=CI&labelColor=black
