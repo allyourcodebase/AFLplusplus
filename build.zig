@@ -491,7 +491,13 @@ pub fn build(b: *std.Build) !void {
     });
     socketfuzz_lib.addCSourceFile(.{
         .file = AFLplusplus_utl_path.path(b, "socket_fuzzing/socketfuzz.c"),
-        .flags = &.{ if (ptr_bit_width == 32) "-m32" else "-m64", "-Wall", "-Wextra", "-fno-sanitize=undefined" },
+        .flags = &.{
+            if (ptr_bit_width == 32) "-m32" else "-m64",
+            "-Wall",
+            "-Wextra",
+            "-fsanitize=undefined",
+            "-fsanitize-trap=undefined",
+        },
     });
     socketfuzz_lib.addIncludePath(AFLplusplus_inc_path);
     socketfuzz_lib.linkLibC();
@@ -511,7 +517,13 @@ pub fn build(b: *std.Build) !void {
     });
     argvfuzz_lib.addCSourceFile(.{
         .file = AFLplusplus_utl_path.path(b, "argv_fuzzing/argvfuzz.c"),
-        .flags = &.{ if (ptr_bit_width == 32) "-m32" else "-m64", "-Wall", "-Wextra", "-fno-sanitize=undefined" },
+        .flags = &.{
+            if (ptr_bit_width == 32) "-m32" else "-m64",
+            "-Wall",
+            "-Wextra",
+            "-fsanitize=undefined",
+            "-fsanitize-trap=undefined",
+        },
     });
     argvfuzz_lib.addIncludePath(AFLplusplus_inc_path);
     argvfuzz_lib.linkLibC();
@@ -575,7 +587,8 @@ const EXE_FLAGS = .{
     "-Wno-pointer-sign",
     "-Wno-pointer-arith",
     "-Wno-variadic-macros",
-    "-fno-sanitize=undefined",
+    "-fsanitize=undefined",
+    "-fsanitize-trap=undefined",
     "-DDOC_PATH=\"\"",
     "-D_AFL_SPECIAL_PERFORMANCE",
 };
@@ -591,7 +604,8 @@ const LLVM_EXE_C_FLAGS = .{
     "-Wno-unused-result",
     "-Wno-unused-function",
     "-Wno-variadic-macros",
-    "-fno-sanitize=undefined",
+    "-fsanitize=undefined",
+    "-fsanitize-trap=undefined",
     "-Wno-deprecated-copy-with-dtor",
     "-DUSE_BINDIR=1",
     "-DAFL_REAL_LD=\"lld\"",
@@ -634,6 +648,7 @@ const UTIL_LIB_FLAGS = .{
     "-funroll-loops",
     "-Wall",
     "-Wno-pointer-sign",
-    "-fno-sanitize=undefined",
+    "-fsanitize=undefined",
+    "-fsanitize-trap=undefined",
     "-D_FORTIFY_SOURCE=2",
 };
