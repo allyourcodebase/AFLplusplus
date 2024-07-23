@@ -3,7 +3,7 @@
 [![CI][ci-shd]][ci-url]
 [![LC][lc-shd]][lc-url]
 
-## Zig build of [AFLplusplus project](https://github.com/AFLplusplus/AFLplusplus).
+## Zig build for [AFLplusplus](https://github.com/AFLplusplus/AFLplusplus).
 
 
 ### :arrow_down: Dependencies
