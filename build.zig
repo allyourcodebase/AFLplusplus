@@ -328,14 +328,7 @@ pub fn build(b: *std.Build) !void {
 
     const llvm_inc_dir = std.mem.trimRight(u8, b.run(&.{ "llvm-config", "--includedir" }), "\n");
     const llvm_inc_path = std.Build.LazyPath{ .cwd_relative = llvm_inc_dir };
-
-    const llvm_libs = std.mem.trimRight(u8, b.run(&.{ "llvm-config", "--libs" }), "\n");
-    const llvm_name: []const u8 = blk: {
-        if (std.mem.indexOf(u8, llvm_libs, "-lLLVM-1")) |llvm_lib_name_idx| {
-            break :blk llvm_libs[llvm_lib_name_idx + 2 .. llvm_lib_name_idx + 9];
-        }
-        break :blk "LLVM";
-    };
+    const llvm_name = b.fmt("LLVM-{}", .{llvm_major});
 
     const llvm_common_obj = b.addObject(.{
         .name = "afl-llvm-common",
