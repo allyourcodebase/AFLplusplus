@@ -6,7 +6,8 @@
 ## Zig build of [AFLplusplus project](https://github.com/AFLplusplus/AFLplusplus).
 
 
-### Dependencies
+### :arrow_down: Dependencies
+
 Requires a build of LLVM. You can either get one from your favorite package manager, or [build it yourself](https://github.com/ziglang/zig/wiki/How-to-build-LLVM,-libclang,-and-liblld-from-source).
 
 ### :rocket: Usage
@@ -17,9 +18,9 @@ cd AFLplusplus/
 zig build
 ```
 
-### Building instrumented executables
+### :100: Easy Source Fuzzing with AFL++
 
-For help building instrumented executables, see [kristoff-it/zig-afl-kit](https://github.com/kristoff-it/zig-afl-kit).
+For help fuzzing your executables, see [kristoff-it/zig-afl-kit](https://github.com/kristoff-it/zig-afl-kit).
 
 <!-- MARKDOWN LINKS -->
 
