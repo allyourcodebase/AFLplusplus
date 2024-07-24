@@ -1,5 +1,6 @@
 const std = @import("std");
-const FailStep = @import("FailStep.zig");
+const builtin = @import("builtin");
+const FailStep = if (builtin.zig_version.minor == 13) @import("FailStep.zig") else std.Build.Step.Fail;
 
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
