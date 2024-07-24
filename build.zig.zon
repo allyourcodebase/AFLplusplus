@@ -9,6 +9,7 @@
         },
     },
     .paths = .{
+        "FailStep.zig",
         "build.zig",
         "build.zig.zon",
         "LICENSE",
