@@ -309,8 +309,8 @@ pub fn build(b: *std.Build) !void {
             if (ptr_bit_width == 32) "-m32" else "-m64",
             "-Wall",
             "-Wextra",
-            "-fsanitize=undefined",
-            "-fsanitize-trap=undefined",
+            "-fno-sanitize=undefined",
+            "-fno-sanitize-trap=undefined",
         },
     });
     socketfuzz_lib.addIncludePath(AFLplusplus_inc_path);
@@ -335,8 +335,8 @@ pub fn build(b: *std.Build) !void {
             if (ptr_bit_width == 32) "-m32" else "-m64",
             "-Wall",
             "-Wextra",
-            "-fsanitize=undefined",
-            "-fsanitize-trap=undefined",
+            "-fno-sanitize=undefined",
+            "-fno-sanitize-trap=undefined",
         },
     });
     argvfuzz_lib.addIncludePath(AFLplusplus_inc_path);
@@ -628,8 +628,8 @@ const EXE_FLAGS = .{
     "-Wno-pointer-sign",
     "-Wno-pointer-arith",
     "-Wno-variadic-macros",
-    "-fsanitize=undefined",
-    "-fsanitize-trap=undefined",
+    "-fno-sanitize=undefined",
+    "-fno-sanitize-trap=undefined",
     "-DDOC_PATH=\"\"",
     "-D_AFL_SPECIAL_PERFORMANCE",
 };
@@ -645,8 +645,8 @@ const LLVM_EXE_C_FLAGS = .{
     "-Wno-unused-result",
     "-Wno-unused-function",
     "-Wno-variadic-macros",
-    "-fsanitize=undefined",
-    "-fsanitize-trap=undefined",
+    "-fno-sanitize=undefined",
+    "-fno-sanitize-trap=undefined",
     "-Wno-deprecated-copy-with-dtor",
     "-DUSE_BINDIR=1",
     "-DAFL_REAL_LD=\"lld\"",
@@ -689,7 +689,7 @@ const UTIL_LIB_FLAGS = .{
     "-funroll-loops",
     "-Wall",
     "-Wno-pointer-sign",
-    "-fsanitize=undefined",
-    "-fsanitize-trap=undefined",
+    "-fno-sanitize=undefined",
+    "-fno-sanitize-trap=undefined",
     "-D_FORTIFY_SOURCE=2",
 };
