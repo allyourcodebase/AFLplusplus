@@ -395,50 +395,69 @@ fn setupLLVMTooling(
     const enable_wafl = b.option(bool, "enable-wafl", "Enable WAFL mode on WASI") orelse false;
 
     // LLVM instrumentation object suite
-    const llvm_objs_step = b.step("llvm_objs", "Install LLVM instrumentation object suite, requires LLVM");
+    // NOTE: we try to build this step even in the absence of llvm-config
+    const llvm_objs_step = b.step("llvm_objs", "Install LLVM instrumentation object suite");
 
     // LLVM instrumentation library suite
-    const llvm_libs_step = b.step("llvm_libs", "Install LLVM instrumentation library suite, requires LLVM");
+    const llvm_libs_step = b.step("llvm_libs", "Install LLVM instrumentation library suite");
 
     // LLVM instrumentation executable suite
-    const llvm_exes_step = b.step("llvm_exes", "Install LLVM instrumentation executable suite, requires LLVM");
+    const llvm_exes_step = b.step("llvm_exes", "Install LLVM instrumentation executable suite");
 
-    const llvm_config_path = b.findProgram(
+    const llvm_config_path: ?[]const u8 = b.findProgram(
         &.{"llvm-config"},
         b.option([]const []const u8, "llvm-config-path", "Path that contains llvm-config") orelse &.{},
-    ) catch {
+    ) catch blk: {
         const fail = FailStep.create(
             b,
-            "Could not find 'llvm-config', which is required to build, set '-Dllvm-config-path' to specify a location not in PATH",
+            "Could not find 'llvm-config', which is required to build this step, set '-Dllvm-config-path' to specify a location not in PATH",
         );
 
-        llvm_objs_step.dependOn(&fail.step);
         llvm_libs_step.dependOn(&fail.step);
         llvm_exes_step.dependOn(&fail.step);
-        return;
+        break :blk null;
     };
 
     // LLVM instrumentation C flags
     var llvm_c_flags = std.BoundedArray([]const u8, 32){};
     llvm_c_flags.appendSliceAssumeCapacity(&LLVM_EXE_C_FLAGS);
-    const llvm_version = std.mem.trimRight(u8, b.run(&.{ llvm_config_path, "--version" }), "\n");
-    var llvm_version_iter = std.mem.tokenizeScalar(u8, llvm_version, '.');
-    const llvm_major = try std.fmt.parseUnsigned(u8, llvm_version_iter.next().?, 10);
-    const llvm_minor = try std.fmt.parseUnsigned(u8, llvm_version_iter.next().?, 10);
-    const llvm_bin_dir = std.mem.trimRight(u8, b.run(&.{ llvm_config_path, "--bindir" }), "\n");
-    const llvm_lib_dir = std.mem.trimRight(u8, b.run(&.{ llvm_config_path, "--libdir" }), "\n");
-    const llvm_lib_path = std.Build.LazyPath{ .cwd_relative = llvm_lib_dir };
+
+    const LLVM = struct {
+        version: []const u8 = "",
+        major: u8 = 18,
+        minor: u8 = 0,
+        bin_dir: []const u8 = "",
+        lib_dir: []const u8 = "",
+        lib_path: ?std.Build.LazyPath = null,
+    };
+
     llvm_c_flags.appendSliceAssumeCapacity(&.{
         lib_path_flag,
         bin_path_flag,
-        b.fmt("-DLLVM_MAJOR={}", .{llvm_major}),
-        b.fmt("-DLLVM_MINOR={}", .{llvm_minor}),
-        b.fmt("-DLLVM_VER=\"{s}\"", .{llvm_version}),
-        b.fmt("-DLLVM_BINDIR=\"{s}\"", .{llvm_bin_dir}),
-        b.fmt("-DLLVM_LIBDIR=\"{s}\"", .{llvm_lib_dir}),
-        b.fmt("-DCLANG_BIN=\"{s}/clang\"", .{llvm_bin_dir}),
-        b.fmt("-DCLANGPP_BIN=\"{s}/clang++\"", .{llvm_bin_dir}),
     });
+
+    // NOTE: this section allows us to continue building afl-compiler-rt
+    //       even in the absence of llvm-config
+    const llvm: LLVM = if (llvm_config_path) |lcp| blk: {
+        var llvm: LLVM = .{};
+        llvm.version = std.mem.trimRight(u8, b.run(&.{ lcp, "--version" }), "\n");
+        var llvm_version_iter = std.mem.tokenizeScalar(u8, llvm.version, '.');
+        llvm.major = try std.fmt.parseUnsigned(u8, llvm_version_iter.next().?, 10);
+        llvm.minor = try std.fmt.parseUnsigned(u8, llvm_version_iter.next().?, 10);
+        llvm.bin_dir = std.mem.trimRight(u8, b.run(&.{ lcp, "--bindir" }), "\n");
+        llvm.lib_dir = std.mem.trimRight(u8, b.run(&.{ lcp, "--libdir" }), "\n");
+        llvm.lib_path = std.Build.LazyPath{ .cwd_relative = llvm.lib_dir };
+        llvm_c_flags.appendSliceAssumeCapacity(&.{
+            b.fmt("-DLLVM_MAJOR={}", .{llvm.major}),
+            b.fmt("-DLLVM_MINOR={}", .{llvm.minor}),
+            b.fmt("-DLLVM_VER=\"{s}\"", .{llvm.version}),
+            b.fmt("-DLLVM_BINDIR=\"{s}\"", .{llvm.bin_dir}),
+            b.fmt("-DLLVM_LIBDIR=\"{s}\"", .{llvm.lib_dir}),
+            b.fmt("-DCLANG_BIN=\"{s}/clang\"", .{llvm.bin_dir}),
+            b.fmt("-DCLANGPP_BIN=\"{s}/clang++\"", .{llvm.bin_dir}),
+        });
+        break :blk llvm;
+    } else .{};
     if (enable_lto) {
         llvm_c_flags.appendAssumeCapacity("-DAFL_CLANG_FLTO=\"-flto\"");
     } else {
@@ -453,7 +472,7 @@ fn setupLLVMTooling(
     llvm_cpp_flags.appendSliceAssumeCapacity(llvm_c_flags.constSlice());
     llvm_cpp_flags.appendSliceAssumeCapacity(&LLVM_EXE_CPP_FLAGS);
     llvm_cpp_flags.appendSliceAssumeCapacity(&.{
-        b.fmt("-std={s}", .{if (llvm_major < 10) "gnu++11" else if (llvm_major < 16) "c++14" else "c++17"}),
+        b.fmt("-std={s}", .{if (llvm.major < 10) "gnu++11" else if (llvm.major < 16) "c++14" else "c++17"}),
     });
     if (enable_wafl and target.result.isWasm()) {
         llvm_cpp_flags.appendSliceAssumeCapacity(&.{ "-DNDEBUG", "-DNO_TLS" });
@@ -499,11 +518,18 @@ fn setupLLVMTooling(
             );
             llvm_objs_step.dependOn(&obj_install.step);
         }
+        b.getInstallStep().dependOn(llvm_objs_step);
     }
 
-    const llvm_inc_dir = std.mem.trimRight(u8, b.run(&.{ llvm_config_path, "--includedir" }), "\n");
+    const lcp = llvm_config_path orelse return;
+
+    const llvm_inc_dir = std.mem.trimRight(
+        u8,
+        b.run(&.{ lcp, "--includedir" }),
+        "\n",
+    );
     const llvm_inc_path = std.Build.LazyPath{ .cwd_relative = llvm_inc_dir };
-    const llvm_name = b.fmt("LLVM-{}", .{llvm_major});
+    const llvm_name = b.fmt("LLVM-{}", .{llvm.major});
 
     const llvm_common_obj = b.addObject(.{
         .name = "afl-llvm-common",
@@ -517,7 +543,7 @@ fn setupLLVMTooling(
     });
     llvm_common_obj.addIncludePath(AFLplusplus_inc_path);
     llvm_common_obj.addIncludePath(llvm_inc_path);
-    llvm_common_obj.addLibraryPath(llvm_lib_path);
+    llvm_common_obj.addLibraryPath(llvm.lib_path.?);
     llvm_common_obj.linkSystemLibrary(llvm_name);
     llvm_common_obj.linkLibCpp();
 
@@ -544,7 +570,7 @@ fn setupLLVMTooling(
         });
         lib.addIncludePath(AFLplusplus_inc_path);
         lib.addIncludePath(llvm_inc_path);
-        lib.addLibraryPath(llvm_lib_path);
+        lib.addLibraryPath(llvm.lib_path.?);
         lib.linkSystemLibrary(llvm_name);
         lib.addObject(llvm_common_obj);
         lib.linkLibCpp();
@@ -570,7 +596,7 @@ fn setupLLVMTooling(
     });
     cc_exe.addIncludePath(AFLplusplus_inc_path);
     cc_exe.addIncludePath(AFLplusplus_ins_path);
-    cc_exe.addLibraryPath(llvm_lib_path);
+    cc_exe.addLibraryPath(llvm.lib_path.?);
     cc_exe.linkSystemLibrary(llvm_name);
     cc_exe.addObject(common_obj);
     cc_exe.linkLibC();
