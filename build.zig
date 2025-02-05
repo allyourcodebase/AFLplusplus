@@ -18,6 +18,7 @@ pub fn build(b: *std.Build) !void {
 
     // Dependencies
     const AFLplusplus_dep = b.dependency("AFLplusplus", .{});
+    const AFLplusplus_root_path = AFLplusplus_dep.path(".");
     const AFLplusplus_src_path = AFLplusplus_dep.path("src/");
     const AFLplusplus_utl_path = AFLplusplus_dep.path("utils/");
     const AFLplusplus_inc_path = AFLplusplus_dep.path("include/");
@@ -363,6 +364,14 @@ pub fn build(b: *std.Build) !void {
 
     b.default_step.dependOn(util_libs_step);
 
+    // Install afl scripts
+    const scripts_step = b.step("scripts", "Install afl scripts");
+    for (SCRIPTS) |script| {
+        const install_script = b.addInstallBinFile(AFLplusplus_root_path.path(b, script), script);
+        scripts_step.dependOn(&install_script.step);
+    }
+    b.default_step.dependOn(scripts_step);
+
     // Formatting checks
     const fmt_step = b.step("fmt", "Run formatting checks");
 
@@ -693,4 +702,15 @@ const UTIL_LIB_FLAGS = .{
     "-fno-sanitize=undefined",
     "-fno-sanitize-trap=undefined",
     "-D_FORTIFY_SOURCE=2",
+};
+
+const SCRIPTS = [_][]const u8{
+    "afl-addseeds",
+    "afl-cmin",
+    "afl-cmin.bash",
+    "afl-persistent-config",
+    "afl-plot",
+    "afl-system-config",
+    "afl-whatsup",
+    "afl-wine-trace",
 };
