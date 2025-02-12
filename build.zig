@@ -8,13 +8,14 @@ pub fn build(b: *std.Build) !void {
     const ptr_bit_width = target.result.ptrBitWidth();
     const lib_path_flag = b.fmt("-DAFL_PATH=\"{s}\"", .{b.lib_dir});
     const bin_path_flag = b.fmt("-DBIN_PATH=\"{s}\"", .{b.exe_dir});
-    const version = std.SemanticVersion{ .major = 4, .minor = 21, .patch = 0 };
+    const version = std.SemanticVersion{ .major = 4, .minor = 31, .patch = 0 };
 
     // Custom options
     const use_z = b.option(bool, "use-z", "Use system zlib") orelse true;
     const build_coresight = b.option(bool, "build-coresight", "Build CoreSight mode on ARM64 Linux") orelse true;
     const build_unicorn_aarch64 = b.option(bool, "build-unicorn-aarch64", "Build Unicorn mode on ARM64") orelse true;
     const build_nyx = b.option(bool, "build-nyx", "Build Nyx mode on Linux") orelse true;
+    const enable_lto = b.option(bool, "enable-lto", "Enable LTO mode") orelse true;
 
     // Dependencies
     const AFLplusplus_dep = b.dependency("AFLplusplus", .{});
@@ -98,6 +99,7 @@ pub fn build(b: *std.Build) !void {
         target,
         optimize,
         version,
+        enable_lto,
         lib_path_flag,
         bin_path_flag,
         AFLplusplus_dep,
@@ -232,27 +234,6 @@ pub fn build(b: *std.Build) !void {
     const gotcpu_exe_install = b.addInstallArtifact(gotcpu_exe, .{});
     exes_step.dependOn(&gotcpu_exe_install.step);
 
-    const as_exe = b.addExecutable(.{
-        .name = "afl-as",
-        .pic = true,
-        .target = target,
-        .version = version,
-        .optimize = optimize,
-    });
-    as_exe.addCSourceFile(.{
-        .file = AFLplusplus_src_path.path(b, "afl-as.c"),
-        .flags = flags.constSlice(),
-    });
-    if (use_z) {
-        as_exe.root_module.addCMacro("HAVE_ZLIB", "");
-        as_exe.linkSystemLibrary("z");
-    }
-    as_exe.addIncludePath(AFLplusplus_inc_path);
-    as_exe.linkLibC();
-
-    const as_exe_install = b.addInstallArtifact(as_exe, .{});
-    exes_step.dependOn(&as_exe_install.step);
-
     b.default_step.dependOn(exes_step);
 
     // Utility library suite
@@ -364,6 +345,64 @@ pub fn build(b: *std.Build) !void {
 
     b.default_step.dependOn(util_libs_step);
 
+    // Install instrumentation object files
+    var instr_c_flags = std.BoundedArray([]const u8, 32){};
+    instr_c_flags.appendSliceAssumeCapacity(&LLVM_EXE_C_FLAGS);
+    instr_c_flags.appendSliceAssumeCapacity(&.{
+        lib_path_flag,
+        bin_path_flag,
+    });
+    if (enable_lto) {
+        instr_c_flags.appendAssumeCapacity("-DAFL_CLANG_FLTO=\"-flto\"");
+    } else {
+        instr_c_flags.appendAssumeCapacity("-DAFL_CLANG_FLTO=\"\"");
+    }
+    if (target.query.isNative()) {
+        instr_c_flags.appendAssumeCapacity("-march=native");
+    }
+
+    inline for (INSTR_OBJ_NAMES) |NAME| {
+        const has_lto = std.mem.endsWith(u8, NAME, "lto");
+        if (has_lto) {
+            instr_c_flags.appendAssumeCapacity("-O0");
+            if (enable_lto) {
+                instr_c_flags.appendAssumeCapacity("-flto");
+            }
+        }
+        defer if (has_lto) {
+            _ = instr_c_flags.pop();
+            if (enable_lto) {
+                _ = instr_c_flags.pop();
+            }
+        };
+        inline for (.{ "", if (ptr_bit_width == 32) "32" else "64" }) |MODE| {
+            if (MODE.len > 0) {
+                instr_c_flags.appendAssumeCapacity("-m" ++ MODE);
+            }
+            defer if (MODE.len > 0) {
+                _ = instr_c_flags.pop();
+            };
+            const obj = b.addObject(.{
+                .name = NAME ++ if (MODE.len > 0) "-" ++ MODE else "",
+                .pic = true,
+                .target = target,
+                .optimize = optimize,
+            });
+            obj.addCSourceFile(.{
+                .file = AFLplusplus_dep.path("instrumentation/").path(b, NAME ++ ".o.c"),
+                .flags = instr_c_flags.constSlice(),
+            });
+            obj.addIncludePath(AFLplusplus_dep.path("include/"));
+            obj.linkLibC();
+
+            const obj_install = b.addInstallArtifact(
+                obj,
+                .{ .dest_dir = .{ .override = .lib } },
+            );
+            b.default_step.dependOn(&obj_install.step);
+        }
+    }
+
     // Install afl scripts
     const scripts_step = b.step("scripts", "Install afl scripts");
     for (SCRIPTS) |script| {
@@ -390,27 +429,31 @@ fn setupLLVMTooling(
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     version: std.SemanticVersion,
+    enable_lto: bool,
     lib_path_flag: []const u8,
     bin_path_flag: []const u8,
     AFLplusplus_dep: *std.Build.Dependency,
     common_obj: *std.Build.Step.Compile,
 ) !void {
-    const ptr_bit_width = target.result.ptrBitWidth();
     const AFLplusplus_src_path = AFLplusplus_dep.path("src/");
     const AFLplusplus_inc_path = AFLplusplus_dep.path("include/");
     const AFLplusplus_ins_path = AFLplusplus_dep.path("instrumentation/");
 
-    const enable_lto = b.option(bool, "enable-lto", "Enable LTO mode") orelse true;
     const enable_wafl = b.option(bool, "enable-wafl", "Enable WAFL mode on WASI") orelse false;
-
-    // LLVM instrumentation object suite
-    const llvm_objs_step = b.step("llvm_objs", "Install LLVM instrumentation object suite, requires LLVM");
 
     // LLVM instrumentation library suite
     const llvm_libs_step = b.step("llvm_libs", "Install LLVM instrumentation library suite, requires LLVM");
 
     // LLVM instrumentation executable suite
     const llvm_exes_step = b.step("llvm_exes", "Install LLVM instrumentation executable suite, requires LLVM");
+
+    if (b.option(
+        bool,
+        "llvm",
+        "enable generating artifacts that depend on a built copy of LLVM",
+    ) orelse false) {
+        b.default_step.dependOn(llvm_exes_step);
+    }
 
     const llvm_config_path = b.findProgram(
         &.{"llvm-config"},
@@ -421,7 +464,6 @@ fn setupLLVMTooling(
             "Could not find 'llvm-config', which is required to build, set '-Dllvm-config-path' to specify a location not in PATH",
         );
 
-        llvm_objs_step.dependOn(&fail.step);
         llvm_libs_step.dependOn(&fail.step);
         llvm_exes_step.dependOn(&fail.step);
         return;
@@ -466,48 +508,6 @@ fn setupLLVMTooling(
     });
     if (enable_wafl and target.result.isWasm()) {
         llvm_cpp_flags.appendSliceAssumeCapacity(&.{ "-DNDEBUG", "-DNO_TLS" });
-    }
-
-    inline for (LLVM_OBJ_NAMES) |NAME| {
-        const has_lto = std.mem.endsWith(u8, NAME, "lto");
-        if (has_lto) {
-            llvm_c_flags.appendAssumeCapacity("-O0");
-            if (enable_lto) {
-                llvm_c_flags.appendAssumeCapacity("-flto");
-            }
-        }
-        defer if (has_lto) {
-            _ = llvm_c_flags.pop();
-            if (enable_lto) {
-                _ = llvm_c_flags.pop();
-            }
-        };
-        inline for (.{ "", if (ptr_bit_width == 32) "32" else "64" }) |MODE| {
-            if (MODE.len > 0) {
-                llvm_c_flags.appendAssumeCapacity("-m" ++ MODE);
-            }
-            defer if (MODE.len > 0) {
-                _ = llvm_c_flags.pop();
-            };
-            const obj = b.addObject(.{
-                .name = NAME,
-                .pic = true,
-                .target = target,
-                .optimize = optimize,
-            });
-            obj.addCSourceFile(.{
-                .file = AFLplusplus_ins_path.path(b, NAME ++ ".o.c"),
-                .flags = llvm_c_flags.constSlice(),
-            });
-            obj.addIncludePath(AFLplusplus_inc_path);
-            obj.linkLibC();
-
-            const obj_install = b.addInstallBinFile(
-                obj.getEmittedBin(),
-                NAME ++ if (MODE.len > 0) "-" ++ MODE else "" ++ ".o",
-            );
-            llvm_objs_step.dependOn(&obj_install.step);
-        }
     }
 
     const llvm_inc_dir = std.mem.trimRight(u8, b.run(&.{ llvm_config_path, "--includedir" }), "\n");
@@ -586,7 +586,6 @@ fn setupLLVMTooling(
 
     const cc_exe_install = b.addInstallArtifact(cc_exe, .{});
     cc_exe_install.step.dependOn(&dynamic_list_install.step);
-    cc_exe_install.step.dependOn(llvm_objs_step);
     cc_exe_install.step.dependOn(llvm_libs_step);
     llvm_exes_step.dependOn(&cc_exe_install.step);
 
@@ -606,7 +605,6 @@ fn setupLLVMTooling(
 
         const ld_lto_exe_install = b.addInstallArtifact(ld_lto_exe, .{});
         ld_lto_exe_install.step.dependOn(&dynamic_list_install.step);
-        ld_lto_exe_install.step.dependOn(llvm_objs_step);
         ld_lto_exe_install.step.dependOn(llvm_libs_step);
         llvm_exes_step.dependOn(&ld_lto_exe_install.step);
     }
@@ -623,6 +621,7 @@ const EXE_FUZZ_SOURCES = .{
     "afl-fuzz-queue.c",
     "afl-fuzz-redqueen.c",
     "afl-fuzz-run.c",
+    "afl-fuzz-sanfuzz.c",
     "afl-fuzz-skipdet.c",
     "afl-fuzz-state.c",
     "afl-fuzz-stats.c",
@@ -670,7 +669,7 @@ const LLVM_EXE_CPP_FLAGS = .{
     "-Wno-deprecated-declarations",
 };
 
-const LLVM_OBJ_NAMES = .{
+const INSTR_OBJ_NAMES = .{
     "afl-compiler-rt",
     "afl-llvm-rt-lto",
 };
