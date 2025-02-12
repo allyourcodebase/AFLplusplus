@@ -4,7 +4,8 @@
     .minimum_zig_version = "0.13.0",
     .dependencies = .{
         .AFLplusplus = .{
-            .path = "../afl-orig",
+            .url = "https://github.com/AFLplusplus/AFLplusplus/archive/refs/tags/v4.31c.tar.gz",
+            .hash = "1220713cf26f5e9fe2b218589de0bd47a772736af791a9bd9dfe3eeaed8e5551b590",
         },
     },
     .paths = .{
