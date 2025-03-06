@@ -258,7 +258,7 @@ pub fn build(b: *std.Build) !void {
     // Utility library suite
     const util_libs_step = b.step("util_libs", "Install utility library suite");
 
-    if (!target.result.isDarwin()) {
+    if (!target.result.os.tag.isDarwin()) {
         const dislocator_lib = b.addSharedLibrary(.{
             .name = "dislocator",
             .pic = true,
@@ -464,7 +464,7 @@ fn setupLLVMTooling(
     llvm_cpp_flags.appendSliceAssumeCapacity(&.{
         b.fmt("-std={s}", .{if (llvm_major < 10) "gnu++11" else if (llvm_major < 16) "c++14" else "c++17"}),
     });
-    if (enable_wafl and target.result.isWasm()) {
+    if (enable_wafl and target.result.cpu.arch.isWasm()) {
         llvm_cpp_flags.appendSliceAssumeCapacity(&.{ "-DNDEBUG", "-DNO_TLS" });
     }
 
