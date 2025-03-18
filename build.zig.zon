@@ -6,7 +6,7 @@
     .dependencies = .{
         .AFLplusplus = .{
             .url = "https://github.com/AFLplusplus/AFLplusplus/archive/v4.21c.tar.gz",
-            .hash = "12200966011c3dd6979d6aa88fe23061fdc6da1f584a6fb1f7682053a0b01e409dbc",
+            .hash = "N-V-__8AAKE4uAAJZgEcPdaXnWqoj-IwYf3G2h9YSm-x92gg",
         },
     },
     .paths = .{
