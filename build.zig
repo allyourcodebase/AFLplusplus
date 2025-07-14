@@ -37,9 +37,11 @@ pub fn build(b: *std.Build) !void {
     // Common objects
     const performance_obj = b.addObject(.{
         .name = "afl-performance",
-        .pic = true,
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .pic = true,
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     performance_obj.addCSourceFile(.{
         .file = AFLplusplus_src_path.path(b, "afl-performance.c"),
@@ -50,9 +52,11 @@ pub fn build(b: *std.Build) !void {
 
     const forkserver_obj = b.addObject(.{
         .name = "afl-forkserver",
-        .pic = true,
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .pic = true,
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     forkserver_obj.addCSourceFile(.{
         .file = AFLplusplus_src_path.path(b, "afl-forkserver.c"),
@@ -63,9 +67,11 @@ pub fn build(b: *std.Build) !void {
 
     const sharedmem_obj = b.addObject(.{
         .name = "afl-sharedmem",
-        .pic = true,
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .pic = true,
+            .target = target,
+            .optimize = optimize,
+        }),
     });
 
     sharedmem_obj.addCSourceFile(.{
@@ -78,9 +84,11 @@ pub fn build(b: *std.Build) !void {
 
     const common_obj = b.addObject(.{
         .name = "afl-common",
-        .pic = true,
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .pic = true,
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     common_obj.addCSourceFile(.{
         .file = AFLplusplus_src_path.path(b, "afl-common.c"),
@@ -106,10 +114,12 @@ pub fn build(b: *std.Build) !void {
 
     const fuzz_exe = b.addExecutable(.{
         .name = "afl-fuzz",
-        .pic = true,
-        .target = target,
         .version = version,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .pic = true,
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     fuzz_exe.addCSourceFiles(.{
         .root = AFLplusplus_src_path,
@@ -132,10 +142,12 @@ pub fn build(b: *std.Build) !void {
 
     const showmap_exe = b.addExecutable(.{
         .name = "afl-showmap",
-        .pic = true,
-        .target = target,
         .version = version,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .pic = true,
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     showmap_exe.addCSourceFiles(.{
         .root = AFLplusplus_src_path,
@@ -160,10 +172,12 @@ pub fn build(b: *std.Build) !void {
 
     const tmin_exe = b.addExecutable(.{
         .name = "afl-tmin",
-        .pic = true,
-        .target = target,
         .version = version,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .pic = true,
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     tmin_exe.addCSourceFile(.{
         .file = AFLplusplus_src_path.path(b, "afl-tmin.c"),
@@ -187,10 +201,12 @@ pub fn build(b: *std.Build) !void {
 
     const analyze_exe = b.addExecutable(.{
         .name = "afl-analyze",
-        .pic = true,
-        .target = target,
         .version = version,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .pic = true,
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     analyze_exe.addCSourceFile(.{
         .file = AFLplusplus_src_path.path(b, "afl-analyze.c"),
@@ -212,10 +228,12 @@ pub fn build(b: *std.Build) !void {
 
     const gotcpu_exe = b.addExecutable(.{
         .name = "afl-gotcpu",
-        .pic = true,
-        .target = target,
         .version = version,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .pic = true,
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     gotcpu_exe.addCSourceFile(.{
         .file = AFLplusplus_src_path.path(b, "afl-gotcpu.c"),
@@ -234,10 +252,12 @@ pub fn build(b: *std.Build) !void {
 
     const as_exe = b.addExecutable(.{
         .name = "afl-as",
-        .pic = true,
-        .target = target,
         .version = version,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .pic = true,
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     as_exe.addCSourceFile(.{
         .file = AFLplusplus_src_path.path(b, "afl-as.c"),
@@ -259,12 +279,15 @@ pub fn build(b: *std.Build) !void {
     const util_libs_step = b.step("util_libs", "Install utility library suite");
 
     if (!target.result.os.tag.isDarwin()) {
-        const dislocator_lib = b.addSharedLibrary(.{
+        const dislocator_lib = b.addLibrary(.{
             .name = "dislocator",
-            .pic = true,
-            .target = target,
+            .linkage = .dynamic,
             .version = version,
-            .optimize = optimize,
+            .root_module = b.createModule(.{
+                .pic = true,
+                .target = target,
+                .optimize = optimize,
+            }),
         });
         dislocator_lib.addCSourceFile(.{
             .file = AFLplusplus_utl_path.path(b, "libdislocator/libdislocator.so.c"),
@@ -276,12 +299,15 @@ pub fn build(b: *std.Build) !void {
         const dislocator_lib_install = b.addInstallArtifact(dislocator_lib, .{ .dylib_symlinks = false });
         util_libs_step.dependOn(&dislocator_lib_install.step);
 
-        const tokencap_lib = b.addSharedLibrary(.{
+        const tokencap_lib = b.addLibrary(.{
             .name = "tokencap",
-            .pic = true,
-            .target = target,
             .version = version,
-            .optimize = optimize,
+            .linkage = .dynamic,
+            .root_module = b.createModule(.{
+                .pic = true,
+                .target = target,
+                .optimize = optimize,
+            }),
         });
         tokencap_lib.addCSourceFile(.{
             .file = AFLplusplus_utl_path.path(b, "libtokencap/libtokencap.so.c"),
@@ -298,12 +324,15 @@ pub fn build(b: *std.Build) !void {
         }
     }
 
-    const socketfuzz_lib = b.addSharedLibrary(.{
+    const socketfuzz_lib = b.addLibrary(.{
         .name = "socketfuzz",
-        .pic = true,
-        .target = target,
+        .linkage = .dynamic,
         .version = version,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .pic = true,
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     socketfuzz_lib.addCSourceFile(.{
         .file = AFLplusplus_utl_path.path(b, "socket_fuzzing/socketfuzz.c"),
@@ -324,12 +353,15 @@ pub fn build(b: *std.Build) !void {
     });
     util_libs_step.dependOn(&socketfuzz_lib_install.step);
 
-    const argvfuzz_lib = b.addSharedLibrary(.{
+    const argvfuzz_lib = b.addLibrary(.{
         .name = "argvfuzz",
-        .pic = true,
-        .target = target,
+        .linkage = .dynamic,
         .version = version,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .pic = true,
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     argvfuzz_lib.addCSourceFile(.{
         .file = AFLplusplus_utl_path.path(b, "argv_fuzzing/argvfuzz.c"),
@@ -491,9 +523,11 @@ fn setupLLVMTooling(
             };
             const obj = b.addObject(.{
                 .name = NAME,
-                .pic = true,
-                .target = target,
-                .optimize = optimize,
+                .root_module = b.createModule(.{
+                    .pic = true,
+                    .target = target,
+                    .optimize = optimize,
+                }),
             });
             obj.addCSourceFile(.{
                 .file = AFLplusplus_ins_path.path(b, NAME ++ ".o.c"),
@@ -516,9 +550,11 @@ fn setupLLVMTooling(
 
     const llvm_common_obj = b.addObject(.{
         .name = "afl-llvm-common",
-        .pic = true,
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .pic = true,
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     llvm_common_obj.addCSourceFile(.{
         .file = AFLplusplus_ins_path.path(b, "afl-llvm-common.cc"),
@@ -536,12 +572,15 @@ fn setupLLVMTooling(
         llvm_lib_names.appendSliceAssumeCapacity(&LLVM_LTO_LIB_NAMES);
     }
     for (llvm_lib_names.constSlice()) |name| {
-        const lib = b.addSharedLibrary(.{
+        const lib = b.addLibrary(.{
+            .linkage = .dynamic,
             .name = name,
-            .pic = true,
-            .target = target,
             .version = version,
-            .optimize = optimize,
+            .root_module = b.createModule(.{
+                .pic = true,
+                .target = target,
+                .optimize = optimize,
+            }),
         });
         const file_name = if (std.mem.startsWith(u8, name, "cmp") or std.mem.startsWith(u8, name, "inj"))
             b.fmt("{s}.cc", .{name})
@@ -569,9 +608,11 @@ fn setupLLVMTooling(
 
     const cc_exe = b.addExecutable(.{
         .name = "afl-cc",
-        .target = target,
         .version = version,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     cc_exe.addCSourceFile(.{
         .file = AFLplusplus_src_path.path(b, "afl-cc.c"),
@@ -593,9 +634,11 @@ fn setupLLVMTooling(
     if (enable_lto) {
         const ld_lto_exe = b.addExecutable(.{
             .name = "afl-ld-lto",
-            .target = target,
             .version = version,
-            .optimize = optimize,
+            .root_module = b.createModule(.{
+                .target = target,
+                .optimize = optimize,
+            }),
         });
         ld_lto_exe.addCSourceFile(.{
             .file = AFLplusplus_src_path.path(b, "afl-ld-lto.c"),
