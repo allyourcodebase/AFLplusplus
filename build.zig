@@ -24,14 +24,15 @@ pub fn build(b: *std.Build) !void {
     const AFLplusplus_inc_path = AFLplusplus_dep.path("include/");
 
     // Common flags
-    var flags = std.BoundedArray([]const u8, 16){};
-    flags.appendSliceAssumeCapacity(&EXE_FLAGS);
-    flags.appendSliceAssumeCapacity(&.{ lib_path_flag, bin_path_flag });
+    var flag_buffer: [16][]const u8 = undefined;
+    var flags: std.ArrayList([]const u8) = .initBuffer(&flag_buffer);
+    try flags.appendSliceBounded(&EXE_FLAGS);
+    try flags.appendSliceBounded(&.{ lib_path_flag, bin_path_flag });
     if (target.result.cpu.arch.isX86()) {
-        flags.appendSliceAssumeCapacity(&.{ "-mavx2", "-D_HAVE_AVX2" });
+        try flags.appendSliceBounded(&.{ "-mavx2", "-D_HAVE_AVX2" });
     }
     if (target.query.isNative()) {
-        flags.appendAssumeCapacity("-march=native");
+        try flags.appendBounded("-march=native");
     }
 
     // Common objects
@@ -45,7 +46,7 @@ pub fn build(b: *std.Build) !void {
     });
     performance_obj.addCSourceFile(.{
         .file = AFLplusplus_src_path.path(b, "afl-performance.c"),
-        .flags = flags.constSlice(),
+        .flags = flags.items,
     });
     performance_obj.addIncludePath(AFLplusplus_inc_path);
     performance_obj.linkLibC();
@@ -60,7 +61,7 @@ pub fn build(b: *std.Build) !void {
     });
     forkserver_obj.addCSourceFile(.{
         .file = AFLplusplus_src_path.path(b, "afl-forkserver.c"),
-        .flags = flags.constSlice(),
+        .flags = flags.items,
     });
     forkserver_obj.addIncludePath(AFLplusplus_inc_path);
     forkserver_obj.linkLibC();
@@ -76,7 +77,7 @@ pub fn build(b: *std.Build) !void {
 
     sharedmem_obj.addCSourceFile(.{
         .file = AFLplusplus_src_path.path(b, "afl-sharedmem.c"),
-        .flags = flags.constSlice(),
+        .flags = flags.items,
     });
 
     sharedmem_obj.addIncludePath(AFLplusplus_inc_path);
@@ -92,7 +93,7 @@ pub fn build(b: *std.Build) !void {
     });
     common_obj.addCSourceFile(.{
         .file = AFLplusplus_src_path.path(b, "afl-common.c"),
-        .flags = flags.constSlice(),
+        .flags = flags.items,
     });
     common_obj.addIncludePath(AFLplusplus_inc_path);
     common_obj.linkLibC();
@@ -124,7 +125,7 @@ pub fn build(b: *std.Build) !void {
     fuzz_exe.addCSourceFiles(.{
         .root = AFLplusplus_src_path,
         .files = &EXE_FUZZ_SOURCES,
-        .flags = flags.constSlice(),
+        .flags = flags.items,
     });
     if (use_z) {
         fuzz_exe.root_module.addCMacro("HAVE_ZLIB", "");
@@ -152,7 +153,7 @@ pub fn build(b: *std.Build) !void {
     showmap_exe.addCSourceFiles(.{
         .root = AFLplusplus_src_path,
         .files = &.{ "afl-showmap.c", "afl-fuzz-mutators.c", "afl-fuzz-python.c" },
-        .flags = flags.constSlice(),
+        .flags = flags.items,
     });
 
     if (use_z) {
@@ -181,7 +182,7 @@ pub fn build(b: *std.Build) !void {
     });
     tmin_exe.addCSourceFile(.{
         .file = AFLplusplus_src_path.path(b, "afl-tmin.c"),
-        .flags = flags.constSlice(),
+        .flags = flags.items,
     });
 
     if (use_z) {
@@ -210,7 +211,7 @@ pub fn build(b: *std.Build) !void {
     });
     analyze_exe.addCSourceFile(.{
         .file = AFLplusplus_src_path.path(b, "afl-analyze.c"),
-        .flags = flags.constSlice(),
+        .flags = flags.items,
     });
     if (use_z) {
         analyze_exe.root_module.addCMacro("HAVE_ZLIB", "");
@@ -237,7 +238,7 @@ pub fn build(b: *std.Build) !void {
     });
     gotcpu_exe.addCSourceFile(.{
         .file = AFLplusplus_src_path.path(b, "afl-gotcpu.c"),
-        .flags = flags.constSlice(),
+        .flags = flags.items,
     });
     if (use_z) {
         gotcpu_exe.root_module.addCMacro("HAVE_ZLIB", "");
@@ -261,7 +262,7 @@ pub fn build(b: *std.Build) !void {
     });
     as_exe.addCSourceFile(.{
         .file = AFLplusplus_src_path.path(b, "afl-as.c"),
-        .flags = flags.constSlice(),
+        .flags = flags.items,
     });
     if (use_z) {
         as_exe.root_module.addCMacro("HAVE_ZLIB", "");
@@ -460,8 +461,9 @@ fn setupLLVMTooling(
     };
 
     // LLVM instrumentation C flags
-    var llvm_c_flags = std.BoundedArray([]const u8, 32){};
-    llvm_c_flags.appendSliceAssumeCapacity(&LLVM_EXE_C_FLAGS);
+    var llvm_c_flags_buffer: [32][]const u8 = undefined;
+    var llvm_c_flags: std.ArrayList([]const u8) = .initBuffer(&llvm_c_flags_buffer);
+    try llvm_c_flags.appendSliceBounded(&LLVM_EXE_C_FLAGS);
     const llvm_version = std.mem.trimRight(u8, b.run(&.{ llvm_config_path, "--version" }), "\n");
     var llvm_version_iter = std.mem.tokenizeScalar(u8, llvm_version, '.');
     const llvm_major = try std.fmt.parseUnsigned(u8, llvm_version_iter.next().?, 10);
@@ -469,7 +471,7 @@ fn setupLLVMTooling(
     const llvm_bin_dir = std.mem.trimRight(u8, b.run(&.{ llvm_config_path, "--bindir" }), "\n");
     const llvm_lib_dir = std.mem.trimRight(u8, b.run(&.{ llvm_config_path, "--libdir" }), "\n");
     const llvm_lib_path = std.Build.LazyPath{ .cwd_relative = llvm_lib_dir };
-    llvm_c_flags.appendSliceAssumeCapacity(&.{
+    try llvm_c_flags.appendSliceBounded(&.{
         lib_path_flag,
         bin_path_flag,
         b.fmt("-DLLVM_MAJOR={}", .{llvm_major}),
@@ -481,31 +483,32 @@ fn setupLLVMTooling(
         b.fmt("-DCLANGPP_BIN=\"{s}/clang++\"", .{llvm_bin_dir}),
     });
     if (enable_lto) {
-        llvm_c_flags.appendAssumeCapacity("-DAFL_CLANG_FLTO=\"-flto\"");
+        try llvm_c_flags.appendBounded("-DAFL_CLANG_FLTO=\"-flto\"");
     } else {
-        llvm_c_flags.appendAssumeCapacity("-DAFL_CLANG_FLTO=\"\"");
+        try llvm_c_flags.appendBounded("-DAFL_CLANG_FLTO=\"\"");
     }
     if (target.query.isNative()) {
-        llvm_c_flags.appendAssumeCapacity("-march=native");
+        try llvm_c_flags.appendBounded("-march=native");
     }
 
     // LLVM instrumentation C++ flags
-    var llvm_cpp_flags = std.BoundedArray([]const u8, 64){};
-    llvm_cpp_flags.appendSliceAssumeCapacity(llvm_c_flags.constSlice());
-    llvm_cpp_flags.appendSliceAssumeCapacity(&LLVM_EXE_CPP_FLAGS);
-    llvm_cpp_flags.appendSliceAssumeCapacity(&.{
+    var llvm_cpp_flags_buf: [64][]const u8 = undefined;
+    var llvm_cpp_flags: std.ArrayList([]const u8) = .initBuffer(&llvm_cpp_flags_buf);
+    try llvm_cpp_flags.appendSliceBounded(llvm_c_flags.items);
+    try llvm_cpp_flags.appendSliceBounded(&LLVM_EXE_CPP_FLAGS);
+    try llvm_cpp_flags.appendSliceBounded(&.{
         b.fmt("-std={s}", .{if (llvm_major < 10) "gnu++11" else if (llvm_major < 16) "c++14" else "c++17"}),
     });
     if (enable_wafl and target.result.cpu.arch.isWasm()) {
-        llvm_cpp_flags.appendSliceAssumeCapacity(&.{ "-DNDEBUG", "-DNO_TLS" });
+        try llvm_cpp_flags.appendSliceBounded(&.{ "-DNDEBUG", "-DNO_TLS" });
     }
 
     inline for (LLVM_OBJ_NAMES) |NAME| {
         const has_lto = std.mem.endsWith(u8, NAME, "lto");
         if (has_lto) {
-            llvm_c_flags.appendAssumeCapacity("-O0");
+            try llvm_c_flags.appendBounded("-O0");
             if (enable_lto) {
-                llvm_c_flags.appendAssumeCapacity("-flto");
+                try llvm_c_flags.appendBounded("-flto");
             }
         }
         defer if (has_lto) {
@@ -516,7 +519,7 @@ fn setupLLVMTooling(
         };
         inline for (.{ "", if (ptr_bit_width == 32) "32" else "64" }) |MODE| {
             if (MODE.len > 0) {
-                llvm_c_flags.appendAssumeCapacity("-m" ++ MODE);
+                try llvm_c_flags.appendBounded("-m" ++ MODE);
             }
             defer if (MODE.len > 0) {
                 _ = llvm_c_flags.pop();
@@ -531,7 +534,7 @@ fn setupLLVMTooling(
             });
             obj.addCSourceFile(.{
                 .file = AFLplusplus_ins_path.path(b, NAME ++ ".o.c"),
-                .flags = llvm_c_flags.constSlice(),
+                .flags = llvm_c_flags.items,
             });
             obj.addIncludePath(AFLplusplus_inc_path);
             obj.linkLibC();
@@ -558,7 +561,7 @@ fn setupLLVMTooling(
     });
     llvm_common_obj.addCSourceFile(.{
         .file = AFLplusplus_ins_path.path(b, "afl-llvm-common.cc"),
-        .flags = llvm_cpp_flags.constSlice(),
+        .flags = llvm_cpp_flags.items,
     });
     llvm_common_obj.addIncludePath(AFLplusplus_inc_path);
     llvm_common_obj.addIncludePath(llvm_inc_path);
@@ -566,12 +569,13 @@ fn setupLLVMTooling(
     llvm_common_obj.linkSystemLibrary(llvm_name);
     llvm_common_obj.linkLibCpp();
 
-    var llvm_lib_names = std.BoundedArray([]const u8, 16){};
-    llvm_lib_names.appendSliceAssumeCapacity(&LLVM_LIB_NAMES);
+    var llvm_lib_names_buf: [16][]const u8 = undefined;
+    var llvm_lib_names: std.ArrayList([]const u8) = .initBuffer(&llvm_lib_names_buf);
+    try llvm_lib_names.appendSliceBounded(&LLVM_LIB_NAMES);
     if (enable_lto) {
-        llvm_lib_names.appendSliceAssumeCapacity(&LLVM_LTO_LIB_NAMES);
+        try llvm_lib_names.appendSliceBounded(&LLVM_LTO_LIB_NAMES);
     }
-    for (llvm_lib_names.constSlice()) |name| {
+    for (llvm_lib_names.items) |name| {
         const lib = b.addLibrary(.{
             .linkage = .dynamic,
             .name = name,
@@ -588,7 +592,7 @@ fn setupLLVMTooling(
             b.fmt("{s}.so.cc", .{name});
         lib.addCSourceFile(.{
             .file = AFLplusplus_ins_path.path(b, file_name),
-            .flags = llvm_cpp_flags.constSlice(),
+            .flags = llvm_cpp_flags.items,
         });
         lib.addIncludePath(AFLplusplus_inc_path);
         lib.addIncludePath(llvm_inc_path);
@@ -616,7 +620,7 @@ fn setupLLVMTooling(
     });
     cc_exe.addCSourceFile(.{
         .file = AFLplusplus_src_path.path(b, "afl-cc.c"),
-        .flags = llvm_c_flags.constSlice(),
+        .flags = llvm_c_flags.items,
     });
     cc_exe.addIncludePath(AFLplusplus_inc_path);
     cc_exe.addIncludePath(AFLplusplus_ins_path);
@@ -642,7 +646,7 @@ fn setupLLVMTooling(
         });
         ld_lto_exe.addCSourceFile(.{
             .file = AFLplusplus_src_path.path(b, "afl-ld-lto.c"),
-            .flags = llvm_c_flags.constSlice(),
+            .flags = llvm_c_flags.items,
         });
         ld_lto_exe.addIncludePath(AFLplusplus_inc_path);
         ld_lto_exe.linkLibC();
