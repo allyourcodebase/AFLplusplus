@@ -2,7 +2,7 @@
     .name = .AFLplusplus,
     .fingerprint = 0x632e7eb6e1720d68,
     .version = "4.21.0",
-    .minimum_zig_version = "0.15.0",
+    .minimum_zig_version = "0.15.1",
     .dependencies = .{
         .AFLplusplus = .{
             .url = "https://github.com/AFLplusplus/AFLplusplus/archive/v4.21c.tar.gz",
