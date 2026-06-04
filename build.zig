@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const FailStep = if (builtin.zig_version.minor == 13) @import("FailStep.zig") else std.Build.Step.Fail;
+const FailStep = std.Build.Step.Fail;
 
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
@@ -42,14 +42,14 @@ pub fn build(b: *std.Build) !void {
             .pic = true,
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
-    performance_obj.addCSourceFile(.{
+    performance_obj.root_module.addCSourceFile(.{
         .file = AFLplusplus_src_path.path(b, "afl-performance.c"),
         .flags = flags.items,
     });
-    performance_obj.addIncludePath(AFLplusplus_inc_path);
-    performance_obj.linkLibC();
+    performance_obj.root_module.addIncludePath(AFLplusplus_inc_path);
 
     const forkserver_obj = b.addObject(.{
         .name = "afl-forkserver",
@@ -57,14 +57,14 @@ pub fn build(b: *std.Build) !void {
             .pic = true,
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
-    forkserver_obj.addCSourceFile(.{
+    forkserver_obj.root_module.addCSourceFile(.{
         .file = AFLplusplus_src_path.path(b, "afl-forkserver.c"),
         .flags = flags.items,
     });
-    forkserver_obj.addIncludePath(AFLplusplus_inc_path);
-    forkserver_obj.linkLibC();
+    forkserver_obj.root_module.addIncludePath(AFLplusplus_inc_path);
 
     const sharedmem_obj = b.addObject(.{
         .name = "afl-sharedmem",
@@ -72,16 +72,14 @@ pub fn build(b: *std.Build) !void {
             .pic = true,
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
-
-    sharedmem_obj.addCSourceFile(.{
+    sharedmem_obj.root_module.addCSourceFile(.{
         .file = AFLplusplus_src_path.path(b, "afl-sharedmem.c"),
         .flags = flags.items,
     });
-
-    sharedmem_obj.addIncludePath(AFLplusplus_inc_path);
-    sharedmem_obj.linkLibC();
+    sharedmem_obj.root_module.addIncludePath(AFLplusplus_inc_path);
 
     const common_obj = b.addObject(.{
         .name = "afl-common",
@@ -89,14 +87,14 @@ pub fn build(b: *std.Build) !void {
             .pic = true,
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
-    common_obj.addCSourceFile(.{
+    common_obj.root_module.addCSourceFile(.{
         .file = AFLplusplus_src_path.path(b, "afl-common.c"),
         .flags = flags.items,
     });
-    common_obj.addIncludePath(AFLplusplus_inc_path);
-    common_obj.linkLibC();
+    common_obj.root_module.addIncludePath(AFLplusplus_inc_path);
 
     // Executable suite
     const exes_step = b.step("exes", "Install fuzzing tools");
@@ -120,23 +118,23 @@ pub fn build(b: *std.Build) !void {
             .pic = true,
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
-    fuzz_exe.addCSourceFiles(.{
+    fuzz_exe.root_module.addCSourceFiles(.{
         .root = AFLplusplus_src_path,
         .files = &EXE_FUZZ_SOURCES,
         .flags = flags.items,
     });
     if (use_z) {
         fuzz_exe.root_module.addCMacro("HAVE_ZLIB", "");
-        fuzz_exe.linkSystemLibrary("z");
+        fuzz_exe.root_module.linkSystemLibrary("z", .{});
     }
-    fuzz_exe.addIncludePath(AFLplusplus_inc_path);
-    fuzz_exe.addObject(performance_obj);
-    fuzz_exe.addObject(forkserver_obj);
-    fuzz_exe.addObject(sharedmem_obj);
-    fuzz_exe.addObject(common_obj);
-    fuzz_exe.linkLibC();
+    fuzz_exe.root_module.addIncludePath(AFLplusplus_inc_path);
+    fuzz_exe.root_module.addObject(performance_obj);
+    fuzz_exe.root_module.addObject(forkserver_obj);
+    fuzz_exe.root_module.addObject(sharedmem_obj);
+    fuzz_exe.root_module.addObject(common_obj);
 
     const fuzz_exe_install = b.addInstallArtifact(fuzz_exe, .{});
     exes_step.dependOn(&fuzz_exe_install.step);
@@ -148,25 +146,23 @@ pub fn build(b: *std.Build) !void {
             .pic = true,
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
-    showmap_exe.addCSourceFiles(.{
+    showmap_exe.root_module.addCSourceFiles(.{
         .root = AFLplusplus_src_path,
         .files = &.{ "afl-showmap.c", "afl-fuzz-mutators.c", "afl-fuzz-python.c" },
         .flags = flags.items,
     });
-
     if (use_z) {
         showmap_exe.root_module.addCMacro("HAVE_ZLIB", "");
-        showmap_exe.linkSystemLibrary("z");
+        showmap_exe.root_module.linkSystemLibrary("z", .{});
     }
-
-    showmap_exe.addIncludePath(AFLplusplus_inc_path);
-    showmap_exe.addObject(performance_obj);
-    showmap_exe.addObject(forkserver_obj);
-    showmap_exe.addObject(sharedmem_obj);
-    showmap_exe.addObject(common_obj);
-    showmap_exe.linkLibC();
+    showmap_exe.root_module.addIncludePath(AFLplusplus_inc_path);
+    showmap_exe.root_module.addObject(performance_obj);
+    showmap_exe.root_module.addObject(forkserver_obj);
+    showmap_exe.root_module.addObject(sharedmem_obj);
+    showmap_exe.root_module.addObject(common_obj);
 
     const showmap_exe_install = b.addInstallArtifact(showmap_exe, .{});
     exes_step.dependOn(&showmap_exe_install.step);
@@ -178,24 +174,22 @@ pub fn build(b: *std.Build) !void {
             .pic = true,
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
-    tmin_exe.addCSourceFile(.{
+    tmin_exe.root_module.addCSourceFile(.{
         .file = AFLplusplus_src_path.path(b, "afl-tmin.c"),
         .flags = flags.items,
     });
-
     if (use_z) {
         tmin_exe.root_module.addCMacro("HAVE_ZLIB", "");
-        tmin_exe.linkSystemLibrary("z");
+        tmin_exe.root_module.linkSystemLibrary("z", .{});
     }
-
-    tmin_exe.addIncludePath(AFLplusplus_inc_path);
-    tmin_exe.addObject(performance_obj);
-    tmin_exe.addObject(forkserver_obj);
-    tmin_exe.addObject(sharedmem_obj);
-    tmin_exe.addObject(common_obj);
-    tmin_exe.linkLibC();
+    tmin_exe.root_module.addIncludePath(AFLplusplus_inc_path);
+    tmin_exe.root_module.addObject(performance_obj);
+    tmin_exe.root_module.addObject(forkserver_obj);
+    tmin_exe.root_module.addObject(sharedmem_obj);
+    tmin_exe.root_module.addObject(common_obj);
 
     const tmin_exe_install = b.addInstallArtifact(tmin_exe, .{});
     exes_step.dependOn(&tmin_exe_install.step);
@@ -207,22 +201,22 @@ pub fn build(b: *std.Build) !void {
             .pic = true,
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
-    analyze_exe.addCSourceFile(.{
+    analyze_exe.root_module.addCSourceFile(.{
         .file = AFLplusplus_src_path.path(b, "afl-analyze.c"),
         .flags = flags.items,
     });
     if (use_z) {
         analyze_exe.root_module.addCMacro("HAVE_ZLIB", "");
-        analyze_exe.linkSystemLibrary("z");
+        analyze_exe.root_module.linkSystemLibrary("z", .{});
     }
-    analyze_exe.addIncludePath(AFLplusplus_inc_path);
-    analyze_exe.addObject(performance_obj);
-    analyze_exe.addObject(forkserver_obj);
-    analyze_exe.addObject(sharedmem_obj);
-    analyze_exe.addObject(common_obj);
-    analyze_exe.linkLibC();
+    analyze_exe.root_module.addIncludePath(AFLplusplus_inc_path);
+    analyze_exe.root_module.addObject(performance_obj);
+    analyze_exe.root_module.addObject(forkserver_obj);
+    analyze_exe.root_module.addObject(sharedmem_obj);
+    analyze_exe.root_module.addObject(common_obj);
 
     const analyze_exe_install = b.addInstallArtifact(analyze_exe, .{});
     exes_step.dependOn(&analyze_exe_install.step);
@@ -234,19 +228,19 @@ pub fn build(b: *std.Build) !void {
             .pic = true,
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
-    gotcpu_exe.addCSourceFile(.{
+    gotcpu_exe.root_module.addCSourceFile(.{
         .file = AFLplusplus_src_path.path(b, "afl-gotcpu.c"),
         .flags = flags.items,
     });
     if (use_z) {
         gotcpu_exe.root_module.addCMacro("HAVE_ZLIB", "");
-        gotcpu_exe.linkSystemLibrary("z");
+        gotcpu_exe.root_module.linkSystemLibrary("z", .{});
     }
-    gotcpu_exe.addIncludePath(AFLplusplus_inc_path);
-    gotcpu_exe.addObject(common_obj);
-    gotcpu_exe.linkLibC();
+    gotcpu_exe.root_module.addIncludePath(AFLplusplus_inc_path);
+    gotcpu_exe.root_module.addObject(common_obj);
 
     const gotcpu_exe_install = b.addInstallArtifact(gotcpu_exe, .{});
     exes_step.dependOn(&gotcpu_exe_install.step);
@@ -258,18 +252,18 @@ pub fn build(b: *std.Build) !void {
             .pic = true,
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
-    as_exe.addCSourceFile(.{
+    as_exe.root_module.addCSourceFile(.{
         .file = AFLplusplus_src_path.path(b, "afl-as.c"),
         .flags = flags.items,
     });
     if (use_z) {
         as_exe.root_module.addCMacro("HAVE_ZLIB", "");
-        as_exe.linkSystemLibrary("z");
+        as_exe.root_module.linkSystemLibrary("z", .{});
     }
-    as_exe.addIncludePath(AFLplusplus_inc_path);
-    as_exe.linkLibC();
+    as_exe.root_module.addIncludePath(AFLplusplus_inc_path);
 
     const as_exe_install = b.addInstallArtifact(as_exe, .{});
     exes_step.dependOn(&as_exe_install.step);
@@ -288,14 +282,14 @@ pub fn build(b: *std.Build) !void {
                 .pic = true,
                 .target = target,
                 .optimize = optimize,
+                .link_libc = true,
             }),
         });
-        dislocator_lib.addCSourceFile(.{
+        dislocator_lib.root_module.addCSourceFile(.{
             .file = AFLplusplus_utl_path.path(b, "libdislocator/libdislocator.so.c"),
             .flags = &(UTIL_LIB_FLAGS ++ .{ "-DUSEHUGEPAGE", "-DUSENAMEDPAGE" }),
         });
-        dislocator_lib.addIncludePath(AFLplusplus_inc_path);
-        dislocator_lib.linkLibC();
+        dislocator_lib.root_module.addIncludePath(AFLplusplus_inc_path);
 
         const dislocator_lib_install = b.addInstallArtifact(dislocator_lib, .{ .dylib_symlinks = false });
         util_libs_step.dependOn(&dislocator_lib_install.step);
@@ -308,14 +302,14 @@ pub fn build(b: *std.Build) !void {
                 .pic = true,
                 .target = target,
                 .optimize = optimize,
+                .link_libc = true,
             }),
         });
-        tokencap_lib.addCSourceFile(.{
+        tokencap_lib.root_module.addCSourceFile(.{
             .file = AFLplusplus_utl_path.path(b, "libtokencap/libtokencap.so.c"),
             .flags = &UTIL_LIB_FLAGS,
         });
-        tokencap_lib.addIncludePath(AFLplusplus_inc_path);
-        tokencap_lib.linkLibC();
+        tokencap_lib.root_module.addIncludePath(AFLplusplus_inc_path);
 
         const tokencap_lib_install = b.addInstallArtifact(tokencap_lib, .{ .dylib_symlinks = false });
         util_libs_step.dependOn(&tokencap_lib_install.step);
@@ -333,9 +327,10 @@ pub fn build(b: *std.Build) !void {
             .pic = true,
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
-    socketfuzz_lib.addCSourceFile(.{
+    socketfuzz_lib.root_module.addCSourceFile(.{
         .file = AFLplusplus_utl_path.path(b, "socket_fuzzing/socketfuzz.c"),
         .flags = &.{
             if (ptr_bit_width == 32) "-m32" else "-m64",
@@ -345,8 +340,7 @@ pub fn build(b: *std.Build) !void {
             "-fno-sanitize-trap=undefined",
         },
     });
-    socketfuzz_lib.addIncludePath(AFLplusplus_inc_path);
-    socketfuzz_lib.linkLibC();
+    socketfuzz_lib.root_module.addIncludePath(AFLplusplus_inc_path);
 
     const socketfuzz_lib_install = b.addInstallArtifact(socketfuzz_lib, .{
         .dest_sub_path = if (ptr_bit_width == 32) "socketfuzz32.so" else "socketfuzz64.so",
@@ -362,9 +356,10 @@ pub fn build(b: *std.Build) !void {
             .pic = true,
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
-    argvfuzz_lib.addCSourceFile(.{
+    argvfuzz_lib.root_module.addCSourceFile(.{
         .file = AFLplusplus_utl_path.path(b, "argv_fuzzing/argvfuzz.c"),
         .flags = &.{
             if (ptr_bit_width == 32) "-m32" else "-m64",
@@ -374,8 +369,7 @@ pub fn build(b: *std.Build) !void {
             "-fno-sanitize-trap=undefined",
         },
     });
-    argvfuzz_lib.addIncludePath(AFLplusplus_inc_path);
-    argvfuzz_lib.linkLibC();
+    argvfuzz_lib.root_module.addIncludePath(AFLplusplus_inc_path);
 
     const argvfuzz_lib_install = b.addInstallArtifact(argvfuzz_lib, .{
         .dest_sub_path = if (ptr_bit_width == 32) "argvfuzz32.so" else "argvfuzz64.so",
@@ -464,12 +458,12 @@ fn setupLLVMTooling(
     var llvm_c_flags_buffer: [32][]const u8 = undefined;
     var llvm_c_flags: std.ArrayList([]const u8) = .initBuffer(&llvm_c_flags_buffer);
     try llvm_c_flags.appendSliceBounded(&LLVM_EXE_C_FLAGS);
-    const llvm_version = std.mem.trimRight(u8, b.run(&.{ llvm_config_path, "--version" }), "\n");
+    const llvm_version = std.mem.trimEnd(u8, b.run(&.{ llvm_config_path, "--version" }), "\n");
     var llvm_version_iter = std.mem.tokenizeScalar(u8, llvm_version, '.');
     const llvm_major = try std.fmt.parseUnsigned(u8, llvm_version_iter.next().?, 10);
     const llvm_minor = try std.fmt.parseUnsigned(u8, llvm_version_iter.next().?, 10);
-    const llvm_bin_dir = std.mem.trimRight(u8, b.run(&.{ llvm_config_path, "--bindir" }), "\n");
-    const llvm_lib_dir = std.mem.trimRight(u8, b.run(&.{ llvm_config_path, "--libdir" }), "\n");
+    const llvm_bin_dir = std.mem.trimEnd(u8, b.run(&.{ llvm_config_path, "--bindir" }), "\n");
+    const llvm_lib_dir = std.mem.trimEnd(u8, b.run(&.{ llvm_config_path, "--libdir" }), "\n");
     const llvm_lib_path = std.Build.LazyPath{ .cwd_relative = llvm_lib_dir };
     try llvm_c_flags.appendSliceBounded(&.{
         lib_path_flag,
@@ -530,14 +524,14 @@ fn setupLLVMTooling(
                     .pic = true,
                     .target = target,
                     .optimize = optimize,
+                    .link_libc = true,
                 }),
             });
-            obj.addCSourceFile(.{
+            obj.root_module.addCSourceFile(.{
                 .file = AFLplusplus_ins_path.path(b, NAME ++ ".o.c"),
                 .flags = llvm_c_flags.items,
             });
-            obj.addIncludePath(AFLplusplus_inc_path);
-            obj.linkLibC();
+            obj.root_module.addIncludePath(AFLplusplus_inc_path);
 
             const obj_install = b.addInstallBinFile(
                 obj.getEmittedBin(),
@@ -547,7 +541,7 @@ fn setupLLVMTooling(
         }
     }
 
-    const llvm_inc_dir = std.mem.trimRight(u8, b.run(&.{ llvm_config_path, "--includedir" }), "\n");
+    const llvm_inc_dir = std.mem.trimEnd(u8, b.run(&.{ llvm_config_path, "--includedir" }), "\n");
     const llvm_inc_path = std.Build.LazyPath{ .cwd_relative = llvm_inc_dir };
     const llvm_name = b.fmt("LLVM-{}", .{llvm_major});
 
@@ -557,17 +551,17 @@ fn setupLLVMTooling(
             .pic = true,
             .target = target,
             .optimize = optimize,
+            .link_libcpp = true,
         }),
     });
-    llvm_common_obj.addCSourceFile(.{
+    llvm_common_obj.root_module.addCSourceFile(.{
         .file = AFLplusplus_ins_path.path(b, "afl-llvm-common.cc"),
         .flags = llvm_cpp_flags.items,
     });
-    llvm_common_obj.addIncludePath(AFLplusplus_inc_path);
-    llvm_common_obj.addIncludePath(llvm_inc_path);
-    llvm_common_obj.addLibraryPath(llvm_lib_path);
-    llvm_common_obj.linkSystemLibrary(llvm_name);
-    llvm_common_obj.linkLibCpp();
+    llvm_common_obj.root_module.addIncludePath(AFLplusplus_inc_path);
+    llvm_common_obj.root_module.addIncludePath(llvm_inc_path);
+    llvm_common_obj.root_module.addLibraryPath(llvm_lib_path);
+    llvm_common_obj.root_module.linkSystemLibrary(llvm_name, .{});
 
     var llvm_lib_names_buf: [16][]const u8 = undefined;
     var llvm_lib_names: std.ArrayList([]const u8) = .initBuffer(&llvm_lib_names_buf);
@@ -584,22 +578,22 @@ fn setupLLVMTooling(
                 .pic = true,
                 .target = target,
                 .optimize = optimize,
+                .link_libcpp = true,
             }),
         });
         const file_name = if (std.mem.startsWith(u8, name, "cmp") or std.mem.startsWith(u8, name, "inj"))
             b.fmt("{s}.cc", .{name})
         else
             b.fmt("{s}.so.cc", .{name});
-        lib.addCSourceFile(.{
+        lib.root_module.addCSourceFile(.{
             .file = AFLplusplus_ins_path.path(b, file_name),
             .flags = llvm_cpp_flags.items,
         });
-        lib.addIncludePath(AFLplusplus_inc_path);
-        lib.addIncludePath(llvm_inc_path);
-        lib.addLibraryPath(llvm_lib_path);
-        lib.linkSystemLibrary(llvm_name);
-        lib.addObject(llvm_common_obj);
-        lib.linkLibCpp();
+        lib.root_module.addIncludePath(AFLplusplus_inc_path);
+        lib.root_module.addIncludePath(llvm_inc_path);
+        lib.root_module.addLibraryPath(llvm_lib_path);
+        lib.root_module.linkSystemLibrary(llvm_name, .{});
+        lib.root_module.addObject(llvm_common_obj);
 
         const lib_install = b.addInstallArtifact(lib, .{
             .dest_sub_path = b.fmt("{s}.so", .{name}),
@@ -616,18 +610,18 @@ fn setupLLVMTooling(
         .root_module = b.createModule(.{
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
-    cc_exe.addCSourceFile(.{
+    cc_exe.root_module.addCSourceFile(.{
         .file = AFLplusplus_src_path.path(b, "afl-cc.c"),
         .flags = llvm_c_flags.items,
     });
-    cc_exe.addIncludePath(AFLplusplus_inc_path);
-    cc_exe.addIncludePath(AFLplusplus_ins_path);
-    cc_exe.addLibraryPath(llvm_lib_path);
-    cc_exe.linkSystemLibrary(llvm_name);
-    cc_exe.addObject(common_obj);
-    cc_exe.linkLibC();
+    cc_exe.root_module.addIncludePath(AFLplusplus_inc_path);
+    cc_exe.root_module.addIncludePath(AFLplusplus_ins_path);
+    cc_exe.root_module.addLibraryPath(llvm_lib_path);
+    cc_exe.root_module.linkSystemLibrary(llvm_name, .{});
+    cc_exe.root_module.addObject(common_obj);
 
     const cc_exe_install = b.addInstallArtifact(cc_exe, .{});
     cc_exe_install.step.dependOn(&dynamic_list_install.step);
@@ -642,14 +636,14 @@ fn setupLLVMTooling(
             .root_module = b.createModule(.{
                 .target = target,
                 .optimize = optimize,
+                .link_libc = true,
             }),
         });
-        ld_lto_exe.addCSourceFile(.{
+        ld_lto_exe.root_module.addCSourceFile(.{
             .file = AFLplusplus_src_path.path(b, "afl-ld-lto.c"),
             .flags = llvm_c_flags.items,
         });
-        ld_lto_exe.addIncludePath(AFLplusplus_inc_path);
-        ld_lto_exe.linkLibC();
+        ld_lto_exe.root_module.addIncludePath(AFLplusplus_inc_path);
 
         const ld_lto_exe_install = b.addInstallArtifact(ld_lto_exe, .{});
         ld_lto_exe_install.step.dependOn(&dynamic_list_install.step);
