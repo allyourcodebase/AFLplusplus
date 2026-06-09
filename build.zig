@@ -6,8 +6,8 @@ pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const ptr_bit_width = target.result.ptrBitWidth();
-    const lib_path_flag = b.fmt("-DAFL_PATH=\"{s}\"", .{b.lib_dir});
-    const bin_path_flag = b.fmt("-DBIN_PATH=\"{s}\"", .{b.exe_dir});
+    // const lib_path_flag = b.fmt("-DAFL_PATH=\"{s}\"", .{b.lib_dir});
+    // const bin_path_flag = b.fmt("-DBIN_PATH=\"{s}\"", .{b.exe_dir});
     const version = std.SemanticVersion{ .major = 4, .minor = 21, .patch = 0 };
 
     // Custom options
@@ -27,7 +27,7 @@ pub fn build(b: *std.Build) !void {
     var flag_buffer: [16][]const u8 = undefined;
     var flags: std.ArrayList([]const u8) = .initBuffer(&flag_buffer);
     try flags.appendSliceBounded(&EXE_FLAGS);
-    try flags.appendSliceBounded(&.{ lib_path_flag, bin_path_flag });
+    // try flags.appendSliceBounded(&.{ lib_path_flag, bin_path_flag });
     if (target.result.cpu.arch.isX86()) {
         try flags.appendSliceBounded(&.{ "-mavx2", "-D_HAVE_AVX2" });
     }
@@ -105,8 +105,8 @@ pub fn build(b: *std.Build) !void {
         target,
         optimize,
         version,
-        lib_path_flag,
-        bin_path_flag,
+        // lib_path_flag,
+        // bin_path_flag,
         AFLplusplus_dep,
         common_obj,
     );
@@ -403,9 +403,7 @@ pub fn build(b: *std.Build) !void {
     const fmt_step = b.step("fmt", "Run formatting checks");
 
     const fmt = b.addFmt(.{
-        .paths = &.{
-            "build.zig",
-        },
+        .paths = &.{b.path("build.zig")},
         .check = true,
     });
     fmt_step.dependOn(&fmt.step);
@@ -417,8 +415,8 @@ fn setupLLVMTooling(
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     version: std.SemanticVersion,
-    lib_path_flag: []const u8,
-    bin_path_flag: []const u8,
+    // lib_path_flag: []const u8,
+    // bin_path_flag: []const u8,
     AFLplusplus_dep: *std.Build.Dependency,
     common_obj: *std.Build.Step.Compile,
 ) !void {
@@ -439,10 +437,15 @@ fn setupLLVMTooling(
     // LLVM instrumentation executable suite
     const llvm_exes_step = b.step("llvm_exes", "Install LLVM instrumentation executable suite, requires LLVM");
 
-    const llvm_config_path = b.findProgram(
-        &.{"llvm-config"},
-        b.option([]const []const u8, "llvm-config-path", "Path that contains llvm-config") orelse &.{},
-    ) catch {
+    for (b.option(
+        []const []const u8,
+        "llvm-config-path",
+        "Path that contains llvm-config",
+    ) orelse &.{}) |path| {
+        b.addSearchPrefix(path);
+    }
+
+    const llvm_config_path = b.findProgram(.{ .names = &.{"llvm-config"} }) orelse {
         const fail = FailStep.create(
             b,
             "Could not find 'llvm-config', which is required to build, set '-Dllvm-config-path' to specify a location not in PATH",
@@ -466,8 +469,8 @@ fn setupLLVMTooling(
     const llvm_lib_dir = std.mem.trimEnd(u8, b.run(&.{ llvm_config_path, "--libdir" }), "\n");
     const llvm_lib_path = std.Build.LazyPath{ .cwd_relative = llvm_lib_dir };
     try llvm_c_flags.appendSliceBounded(&.{
-        lib_path_flag,
-        bin_path_flag,
+        // lib_path_flag,
+        // bin_path_flag,
         b.fmt("-DLLVM_MAJOR={}", .{llvm_major}),
         b.fmt("-DLLVM_MINOR={}", .{llvm_minor}),
         b.fmt("-DLLVM_VER=\"{s}\"", .{llvm_version}),
